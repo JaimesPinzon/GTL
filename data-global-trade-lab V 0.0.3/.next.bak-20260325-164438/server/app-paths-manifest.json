@@ -1,0 +1,4 @@
+{
+  "/api/market/quotes/route": "app/api/market/quotes/route.js",
+  "/api/auth/[action]/route": "app/api/auth/[action]/route.js"
+}

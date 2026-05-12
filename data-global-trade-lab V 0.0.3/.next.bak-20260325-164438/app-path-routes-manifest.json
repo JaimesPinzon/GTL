@@ -1,0 +1,18 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/api/account/delete/route": "/api/account/delete",
+  "/api/market/drawings/route": "/api/market/drawings",
+  "/api/market/history/route": "/api/market/history",
+  "/api/market/backfill/route": "/api/market/backfill",
+  "/api/market/ohlc/route": "/api/market/ohlc",
+  "/api/market/indicators/route": "/api/market/indicators",
+  "/api/market/quote/route": "/api/market/quote",
+  "/api/market/quotes/route": "/api/market/quotes",
+  "/api/market/quotes/refresh/route": "/api/market/quotes/refresh",
+  "/api/rooms/create/route": "/api/rooms/create",
+  "/favicon.ico/route": "/favicon.ico",
+  "/api/auth/sessions/route": "/api/auth/sessions",
+  "/api/auth/sessions/[sessionId]/route": "/api/auth/sessions/[sessionId]",
+  "/api/auth/[action]/route": "/api/auth/[action]",
+  "/page": "/"
+}

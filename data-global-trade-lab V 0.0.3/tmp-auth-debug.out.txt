@@ -1,0 +1,14 @@
+
+> data-global-trade-lab@0.0.2 dev
+> next dev -p 3205
+
+   ▲ Next.js 15.5.6
+   - Local:        http://localhost:3205
+   - Network:      http://192.168.20.31:3205
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 7.6s
+ ○ Compiling /api/auth/[action] ...
+ ✓ Compiled /api/auth/[action] in 922ms (407 modules)
+ GET /api/auth/csrf 200 in 2738ms

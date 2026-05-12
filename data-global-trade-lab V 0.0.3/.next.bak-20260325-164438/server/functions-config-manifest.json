@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/auth/sessions/[sessionId]": {},
+    "/api/auth/[action]": {},
+    "/api/auth/sessions": {}
+  }
+}

@@ -1,0 +1,9 @@
+   ▲ Next.js 15.5.6
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.20.33:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.9s
+ ○ Compiling /api/market/ohlc/base-candles ...
+ ✓ Compiled /api/market/ohlc/base-candles in 1302ms (395 modules)

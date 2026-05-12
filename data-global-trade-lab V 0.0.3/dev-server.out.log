@@ -1,0 +1,11 @@
+
+> data-global-trade-lab@0.0.3 dev
+> next dev
+
+   ▲ Next.js 15.5.6
+   - Local:        http://localhost:3003
+   - Network:      http://192.168.20.33:3003
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.7s

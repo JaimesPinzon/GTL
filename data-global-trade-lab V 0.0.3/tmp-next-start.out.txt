@@ -1,0 +1,10 @@
+
+> data-global-trade-lab@0.0.2 start
+> next start -p 3101
+
+   ▲ Next.js 15.5.6
+   - Local:        http://localhost:3101
+   - Network:      http://192.168.20.31:3101
+
+ ✓ Starting...
+ ✓ Ready in 1863ms

@@ -1,0 +1,19 @@
+
+> data-global-trade-lab@0.0.3 dev
+> next dev
+
+ ⚠ Port 3000 is in use by process 15320, using available port 3004 instead.
+   ▲ Next.js 15.5.6
+   - Local:        http://localhost:3004
+   - Network:      http://192.168.20.33:3004
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.1s
+ ○ Compiling /api/market/backfill/base-candles ...
+ ✓ Compiled /api/market/backfill/base-candles in 3.1s (394 modules)
+ GET /api/market/backfill/base-candles?force=true 200 in 289606ms
+ ✓ Compiled in 32ms
+ ✓ Compiled in 197ms (195 modules)
+ ✓ Compiled in 129ms (195 modules)
+ ✓ Compiled in 218ms (195 modules)
