@@ -124,6 +124,50 @@ export const getUserByEmail = async (email: string): Promise<AuthUserRecord | nu
     return getUserById(profile.user_id);
 };
 
+export const getOrCreateUserFromSupabaseAccessToken = async (accessToken: string): Promise<AuthUserRecord | null> => {
+    if (!usesSupabaseUsers) {
+        return null;
+    }
+
+    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+    if (authError || !authData.user) {
+        return null;
+    }
+
+    const supabaseUser = authData.user;
+    const existingUser = await getUserById(supabaseUser.id);
+    if (existingUser) {
+        return existingUser;
+    }
+
+    const email = String(supabaseUser.email || "").trim().toLowerCase();
+    if (!email) {
+        return null;
+    }
+
+    const metadata = (supabaseUser.user_metadata || {}) as Record<string, unknown>;
+    const nameFromMetadata = String(metadata.name || metadata.full_name || "").trim();
+    const defaultName = email.split("@")[0] || "User";
+    const role = String(metadata.role || "").trim().toLowerCase() === "teacher" ? "teacher" : "student";
+    const balance = Number(metadata.balance ?? 100000) || 100000;
+    const initialBalance = Number(metadata.initialBalance ?? metadata.initial_balance ?? 100000) || 100000;
+
+    const { error: upsertError } = await supabaseAdmin.from("profiles").upsert({
+        user_id: supabaseUser.id,
+        email,
+        name: nameFromMetadata || defaultName,
+        role,
+        balance,
+        initial_balance: initialBalance,
+    });
+
+    if (upsertError) {
+        throw upsertError;
+    }
+
+    return getUserById(supabaseUser.id);
+};
+
 export const createUserRecord = async (input: {
     email: string;
     password: string;

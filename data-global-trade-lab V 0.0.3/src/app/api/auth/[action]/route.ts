@@ -11,6 +11,7 @@ import {
     getRequestMeta,
     issueBootstrapCsrf,
     loginUser,
+    loginUserWithSupabaseAccessToken,
     logoutAllUserSessions,
     logoutUserSession,
     refreshUserSession,
@@ -21,7 +22,7 @@ import {
     validateCsrfRequest,
     withAuthErrors,
 } from "@/modules/auth";
-import { parseChangePasswordBody, parseLoginBody, parseRegisterBody } from "@/modules/auth/validators";
+import { parseChangePasswordBody, parseLoginBody, parseOauthLoginBody, parseRegisterBody } from "@/modules/auth/validators";
 
 export const runtime = "nodejs";
 
@@ -129,6 +130,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
                 },
                 201
             );
+            applyAuthCookies(response, result.refreshToken, result.csrfToken);
+            return response;
+        }
+
+        if (action === "oauth-login") {
+            validateAllowedOrigin(request);
+            const body = await parseOauthLoginBody(request);
+            const result = await loginUserWithSupabaseAccessToken({
+                accessToken: body.accessToken,
+                ...getRequestMeta(request),
+            });
+            const response = authJson(request, {
+                ok: true,
+                user: result.user,
+                accessToken: result.accessToken,
+                accessTokenExpiresIn: result.accessTokenExpiresIn,
+                csrfToken: result.csrfToken,
+            });
             applyAuthCookies(response, result.refreshToken, result.csrfToken);
             return response;
         }

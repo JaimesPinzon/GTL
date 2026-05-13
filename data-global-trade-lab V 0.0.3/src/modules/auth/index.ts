@@ -11,6 +11,7 @@ export {
     getAuthenticatedSessions,
     issueBootstrapCsrf,
     loginUser,
+    loginUserWithSupabaseAccessToken,
     logoutAllUserSessions,
     logoutUserSession,
     revokeAuthenticatedSession,

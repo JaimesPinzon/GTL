@@ -56,3 +56,13 @@ export const parseChangePasswordBody = async (request: NextRequest) => {
 
     return { currentPassword, newPassword };
 };
+
+export const parseOauthLoginBody = async (request: NextRequest) => {
+    const body = await readJsonBody(request);
+    assertAuth(body && typeof body === "object", 400, "Request body must be a valid JSON object.");
+
+    const accessToken = String((body as Record<string, unknown>).accessToken || "").trim();
+    assertAuth(accessToken.length > 0, 400, "Access token is required.");
+
+    return { accessToken };
+};

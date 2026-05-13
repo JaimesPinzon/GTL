@@ -3,6 +3,7 @@ import {
     createUserRecord,
     getUserByEmail,
     getUserById,
+    getOrCreateUserFromSupabaseAccessToken,
     touchUserLogin,
     updateUserPassword,
     verifyUserCredentials,
@@ -48,6 +49,20 @@ export const loginUser = async (input: { email: string; password: string } & Aut
     const user = await verifyUserCredentials(normalizeEmail(input.email), input.password);
     if (!user || !user.isActive) {
         throw new AuthHttpError(401, "Invalid email or password.");
+    }
+
+    await touchUserLogin(user.id);
+    return createSessionPayload(user, input);
+};
+
+export const loginUserWithSupabaseAccessToken = async (
+    input: { accessToken: string } & AuthRequestMeta
+) => {
+    assertAuth(String(input.accessToken || "").trim().length > 0, 400, "Access token is required.");
+
+    const user = await getOrCreateUserFromSupabaseAccessToken(input.accessToken);
+    if (!user || !user.isActive) {
+        throw new AuthHttpError(401, "Supabase access token is invalid.");
     }
 
     await touchUserLogin(user.id);
