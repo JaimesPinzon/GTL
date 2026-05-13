@@ -119,3 +119,11 @@
 * Agregacion: Se agrego el archivo `src/app/api/health/route.ts` con respuesta JSON de estado (`ok`, `service`, `timestamp`).
 * Correccion: Se verifico compilacion de backend con `npm run build` incluyendo la nueva ruta `/api/health`.
 * Eliminacion: No se realizaron eliminaciones en backend durante este cierre.
+
+20261305
+
+* Cambio: Se implemento el puente de autenticacion OAuth hacia sesion propia del backend mediante `POST /api/auth/oauth-login` dentro de `/api/auth/[action]`.
+* Agregacion: Se agregaron `parseOauthLoginBody` y `loginUserWithSupabaseAccessToken` para validar `accessToken`, resolver usuario de Supabase y emitir `refreshToken` y `csrfToken` del sistema propio.
+* Agregacion: Se incorporo `getOrCreateUserFromSupabaseAccessToken` para crear o actualizar el perfil local cuando el usuario llega desde Google OAuth y aun no existe registro operativo.
+* Correccion: Se normalizo la emision de cookies de sesion backend despues de OAuth para que `restore` y `refresh` funcionen con el mismo contrato de autenticacion por correo y password.
+* Eliminacion: No se realizaron eliminaciones de rutas o modulos en backend durante este cierre.
