@@ -1,0 +1,181 @@
+import { NextResponse } from "next/server";
+
+import { supabaseAdmin } from "@/app/utils/supabase/admin";
+import { getAuthenticatedUser } from "@/modules/auth";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+type RoomRecord = {
+  id: string;
+  name: string;
+  access_code: string;
+  description: string | null;
+  state: string;
+  start_date: string | null;
+  end_date: string | null;
+  default_currency: string | null;
+  default_balance: number | string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapRoomRecord(room: RoomRecord) {
+  return {
+    id: room.id,
+    name: room.name,
+    accessCode: room.access_code,
+    description: room.description || "",
+    state: room.state,
+    startDate: room.start_date || null,
+    endDate: room.end_date || null,
+    defaultCurrency: room.default_currency || "USD",
+    defaultBalance: Number(room.default_balance ?? 0),
+    createdBy: room.created_by,
+    createdAt: room.created_at,
+    updatedAt: room.updated_at,
+  };
+}
+
+function getAccessToken(request: Request) {
+  const authorization = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || "";
+}
+
+async function requireUser(request: Request) {
+  const accessToken = getAccessToken(request);
+
+  if (!accessToken) {
+    return { error: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders }) };
+  }
+
+  try {
+    const user = await getAuthenticatedUser(accessToken);
+    return { user };
+  } catch {
+    return { error: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders }) };
+  }
+}
+
+function normalizeRoomCode(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.toUpperCase().replace(/[\s-]+/g, "").trim();
+}
+
+export const runtime = "nodejs";
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
+export async function POST(request: Request) {
+  const auth = await requireUser(request);
+  if (auth.error) {
+    return auth.error;
+  }
+
+  const body = await request.json().catch(() => null);
+  const accessCode = normalizeRoomCode(body?.accessCode);
+
+  if (!accessCode) {
+    return NextResponse.json(
+      { ok: false, error: "Debes ingresar un codigo de sala." },
+      { status: 400, headers: corsHeaders }
+    );
+  }
+
+  const { data: room, error: roomError } = await supabaseAdmin
+    .from("rooms")
+    .select("*")
+    .eq("access_code", accessCode)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (roomError) {
+    return NextResponse.json({ ok: false, error: roomError.message }, { status: 500, headers: corsHeaders });
+  }
+
+  if (!room) {
+    return NextResponse.json(
+      { ok: false, error: "No se encontro una sala con ese codigo." },
+      { status: 404, headers: corsHeaders }
+    );
+  }
+
+  if (room.state !== "active") {
+    return NextResponse.json(
+      { ok: false, error: "La sala existe, pero no esta activa para nuevos ingresos." },
+      { status: 409, headers: corsHeaders }
+    );
+  }
+
+  const { data: existingMembership, error: existingMembershipError } = await supabaseAdmin
+    .from("room_members")
+    .select("role_in_room")
+    .eq("room_id", room.id)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+
+  if (existingMembershipError) {
+    return NextResponse.json(
+      { ok: false, error: existingMembershipError.message },
+      { status: 500, headers: corsHeaders }
+    );
+  }
+
+  const nextRoleInRoom =
+    existingMembership?.role_in_room === "teacher" || existingMembership?.role_in_room === "monitor"
+      ? existingMembership.role_in_room
+      : "student";
+
+  const { error: memberError } = await supabaseAdmin.from("room_members").upsert(
+    {
+      room_id: room.id,
+      user_id: auth.user.id,
+      role_in_room: nextRoleInRoom,
+      state: "active",
+    },
+    { onConflict: "room_id,user_id" }
+  );
+
+  if (memberError) {
+    return NextResponse.json({ ok: false, error: memberError.message }, { status: 500, headers: corsHeaders });
+  }
+
+  const { error: accountError } = await supabaseAdmin.from("student_sim_accounts").upsert(
+    {
+      room_id: room.id,
+      user_id: auth.user.id,
+      available_balance: room.default_balance,
+      blocked_balance: 0,
+      total_balance: room.default_balance,
+      currency: room.default_currency,
+      state: "active",
+    },
+    { onConflict: "room_id,user_id" }
+  );
+
+  if (accountError) {
+    return NextResponse.json({ ok: false, error: accountError.message }, { status: 500, headers: corsHeaders });
+  }
+
+  return NextResponse.json(
+    {
+      ok: true,
+      room: mapRoomRecord(room as RoomRecord),
+    },
+    { headers: corsHeaders }
+  );
+}
