@@ -121,3 +121,11 @@
 
 0.0.4
 
+
+20261405
+
+* Cambio: Se ajustaron los valores por defecto de cookies de autenticacion en produccion para usar `AUTH_COOKIE_SAME_SITE=none` y `AUTH_COOKIE_SECURE=true` cuando no se definan explicitamente.
+* Correccion: Se corrigio la elegibilidad del prefijo `__Host-` para cookies de autenticacion, evitando su uso cuando la cookie de refresh opera con `path=/api/auth`.
+* Correccion: Se estabilizo la emision de la cookie de refresh para que el navegador la acepte y la envie en `GET /api/auth/restore`.
+* Correccion: Se valido compilacion del backend con `npm run build` despues de los ajustes de autenticacion y cookies.
+* Eliminacion: No se realizaron eliminaciones funcionales en backend durante este cierre.
