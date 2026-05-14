@@ -78,7 +78,7 @@
 * Se corrigio la persistencia de velas en `market_candles` haciendo que las rutas de historial y OHLC esperen el refresh de Yahoo Finance antes de responder cuando la data almacenada este desactualizada.
 * Se elimino el refresh en segundo plano para velas historicas cuando existia riesgo de responder sin guardar previamente la informacion actualizada en Supabase.
 
-20260506
+0.0.3
 
 * Cambio: Se unifico el modelo de velas en una tabla particionada `public.candles` con insercion exclusiva desde backend hacia la tabla padre.
 * Agregacion: Se incorporo en `schema.sql` la creacion automatica de particiones mensuales desde 2000-01 hasta 2026-12, incluyendo particion `DEFAULT` y funcion programada con `pg_cron` para generar meses futuros.
@@ -86,24 +86,15 @@
 * Correccion: Se ajustaron lecturas y rutas de mercado para consumir `public.candles` como fuente principal y mantener fallback seguro con datos recientes de TwelveData.
 * Agregacion: Se creo y ejecuto un script de carga para poblar OHLC recientes en `public.candles` con datos de TwelveData para temporalidades intradia y diaria.
 * Eliminacion: Se retiro del flujo operativo la dependencia de tablas legacy por temporalidad (`candles_1m`, `candles_5m`, `candles_15m`, `candles_1h`, `candles_1d`, `candles_1wk`, `candles_1mo`, `candles_1y`) en endpoints y procesos de lectura.
-
-20261305
-
 * Cambio: Se consolido `public.candles` como fuente canonica de velas para dashboard, historia y OHLC desde backend.
 * Agregacion: Se dejo activa en `schema.sql` la preparacion de particiones mensuales historicas (2000-01 a 2026-12) mas generacion futura automatica por `pg_cron`.
 * Agregacion: Se formalizo la verificacion operativa de particiones con control de `candles_default`, validacion de `cron.job` y chequeo de rangos por mes.
 * Correccion: Se estabilizo la integracion de carga de velas recientes para que el backend complete huecos con TwelveData sin romper la lectura principal.
 * Eliminacion: Se retiro el uso directo de tablas por timeframe en las rutas de mercado, quedando un acceso unificado sobre la tabla particionada padre.
-
-20261305
-
 * Cambio: Se habilito en backend el endpoint `GET /api/health` para validacion operativa del servicio desplegado en Render.
 * Agregacion: Se agrego el archivo `src/app/api/health/route.ts` con respuesta JSON de estado (`ok`, `service`, `timestamp`).
 * Correccion: Se verifico compilacion de backend con `npm run build` incluyendo la nueva ruta `/api/health`.
 * Eliminacion: No se realizaron eliminaciones en backend durante este cierre.
-
-20261305
-
 * Cambio: Se unifico la lectura de velas base con deduplicacion por `open_time` y prioridad del simbolo principal cuando existen variantes (`BTCUSD` y `BTC/USD`).
 * Correccion: Se corrigio el corte de historico en backend eliminando duplicados por timestamp antes del saneamiento de continuidad en velas intradia.
 * Correccion: Se estabilizo la carga de OHLC para evitar respuestas incompletas en extremos recientes y antiguos durante la navegacion del grafico.
@@ -112,18 +103,21 @@
 * Agregacion: Se incorporo en `schema.sql` la extension `pg_net`, la funcion `public.trigger_market_base_candles_backfill()` y el job `market-base-candles-backfill-5min` en `pg_cron`.
 * Agregacion: Se habilito configuracion por base de datos para cron de backfill con `app.settings.market_backend_url` y `app.settings.market_cron_secret`.
 * Eliminacion: Se retiro la ruta de refresco no autenticada para backfill periodico de velas base, quedando centralizado en ejecucion programada segura.
-
-20261305
-
 * Cambio: Se habilito en backend el endpoint `GET /api/health` para validacion operativa del servicio desplegado en Render.
 * Agregacion: Se agrego el archivo `src/app/api/health/route.ts` con respuesta JSON de estado (`ok`, `service`, `timestamp`).
 * Correccion: Se verifico compilacion de backend con `npm run build` incluyendo la nueva ruta `/api/health`.
 * Eliminacion: No se realizaron eliminaciones en backend durante este cierre.
-
-20261305
-
 * Cambio: Se implemento el puente de autenticacion OAuth hacia sesion propia del backend mediante `POST /api/auth/oauth-login` dentro de `/api/auth/[action]`.
 * Agregacion: Se agregaron `parseOauthLoginBody` y `loginUserWithSupabaseAccessToken` para validar `accessToken`, resolver usuario de Supabase y emitir `refreshToken` y `csrfToken` del sistema propio.
 * Agregacion: Se incorporo `getOrCreateUserFromSupabaseAccessToken` para crear o actualizar el perfil local cuando el usuario llega desde Google OAuth y aun no existe registro operativo.
 * Correccion: Se normalizo la emision de cookies de sesion backend despues de OAuth para que `restore` y `refresh` funcionen con el mismo contrato de autenticacion por correo y password.
 * Eliminacion: No se realizaron eliminaciones de rutas o modulos en backend durante este cierre.
+* Agregacion: Se implemento el endpoint autenticado `POST /api/rooms/join` para centralizar en backend la union de estudiantes por codigo.
+* Cambio: Se estandarizo la normalizacion de codigos de sala en backend (`trim`, mayusculas y limpieza de espacios/guiones) antes de consultar.
+* Correccion: Se diferencio la respuesta de negocio entre codigo inexistente y sala no activa para nuevos ingresos.
+* Agregacion: Se incorporo upsert de membresia y cuenta simulada del estudiante dentro del flujo backend de union, preservando rol docente/monitor cuando exista.
+* Correccion: Se verifico compilacion de backend con `npm run build` incluyendo la nueva ruta `/api/rooms/join`.
+* Eliminacion: No se realizaron eliminaciones funcionales en backend durante este cierre.
+
+0.0.4
+
