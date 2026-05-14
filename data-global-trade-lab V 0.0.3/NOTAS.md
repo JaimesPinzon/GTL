@@ -129,3 +129,10 @@
 * Correccion: Se estabilizo la emision de la cookie de refresh para que el navegador la acepte y la envie en `GET /api/auth/restore`.
 * Correccion: Se valido compilacion del backend con `npm run build` despues de los ajustes de autenticacion y cookies.
 * Eliminacion: No se realizaron eliminaciones funcionales en backend durante este cierre.
+
+20261405
+
+* Agregacion: Se incorporo el endpoint `DELETE /api/rooms/delete` en `src/app/api/rooms/delete/route.ts` para eliminar salas desde backend con autenticacion por token.
+* Cambio: Se definio validacion de permiso para que solo el propietario de la sala (`created_by`) pueda ejecutar la eliminacion.
+* Correccion: Se implemento limpieza explicita de calificaciones y relaciones academicas antes del borrado final de la sala (`activity_grades`, `activity_submissions`, `activity_posts`, `activities`, `room_members`, `student_sim_accounts`, `balance_adjustments`, `positions`, `transactions`).
+* Eliminacion: Se habilito la eliminacion fisica de la sala en `rooms` en lugar de archivado operativo para este flujo.
