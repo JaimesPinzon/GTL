@@ -49,6 +49,10 @@ export const env = {
     NEXT_PUBLIC_SUPABASE_ANON_KEY: getEnvVariable("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
 };
 
+const isProduction = process.env.NODE_ENV === "production";
+const defaultCookieSameSite = isProduction ? "none" : "lax";
+const defaultCookieSecure = isProduction;
+
 export const serverEnv = {
     TWELVEDATA_API_KEY: getEnvVariable("TWELVEDATA_API_KEY"),
     SUPABASE_SERVICE_ROLE_KEY: getEnvVariable("SUPABASE_SERVICE_ROLE_KEY"),
@@ -58,8 +62,8 @@ export const serverEnv = {
     AUTH_REFRESH_TOKEN_TTL_SECONDS: getNumberEnvVariable("AUTH_REFRESH_TOKEN_TTL_SECONDS", 60 * 60 * 24 * 30),
     AUTH_CSRF_COOKIE_TTL_SECONDS: getNumberEnvVariable("AUTH_CSRF_COOKIE_TTL_SECONDS", 86400),
     AUTH_COOKIE_DOMAIN: getOptionalEnvVariable("AUTH_COOKIE_DOMAIN"),
-    AUTH_COOKIE_SAME_SITE: getOptionalEnvVariable("AUTH_COOKIE_SAME_SITE", "lax"),
-    AUTH_COOKIE_SECURE: getBooleanEnvVariable("AUTH_COOKIE_SECURE", false),
+    AUTH_COOKIE_SAME_SITE: getOptionalEnvVariable("AUTH_COOKIE_SAME_SITE", defaultCookieSameSite),
+    AUTH_COOKIE_SECURE: getBooleanEnvVariable("AUTH_COOKIE_SECURE", defaultCookieSecure),
     AUTH_USERS_STORE: getEnumEnvVariable("AUTH_USERS_STORE", ["file", "supabase"], "supabase"),
     AUTH_SESSION_STORE: getEnumEnvVariable("AUTH_SESSION_STORE", ["file", "supabase"], "file"),
     AUTH_DATA_DIRECTORY: getOptionalEnvVariable("AUTH_DATA_DIRECTORY", "./data/auth"),
