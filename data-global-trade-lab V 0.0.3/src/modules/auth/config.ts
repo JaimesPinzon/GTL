@@ -15,7 +15,8 @@ const defaultLocalDevOrigins = [
 
 const cookieSameSite = serverEnv.AUTH_COOKIE_SAME_SITE.toLowerCase() as "lax" | "strict" | "none";
 const secureCookies = serverEnv.AUTH_COOKIE_SECURE || cookieSameSite === "none";
-const hostPrefixEligible = secureCookies && !serverEnv.AUTH_COOKIE_DOMAIN;
+const refreshCookiePath: string = "/api/auth";
+const hostPrefixEligible = secureCookies && !serverEnv.AUTH_COOKIE_DOMAIN && refreshCookiePath === "/";
 
 const refreshCookieName = hostPrefixEligible ? "__Host-gtl_rt" : "gtl_rt";
 const csrfCookieName = hostPrefixEligible ? "__Host-gtl_csrf" : "gtl_csrf";
@@ -34,7 +35,7 @@ export const authConfig = {
     cookies: {
         refresh: {
             name: refreshCookieName,
-            path: "/api/auth",
+            path: refreshCookiePath,
             sameSite: cookieSameSite,
             secure: secureCookies,
             httpOnly: true,
