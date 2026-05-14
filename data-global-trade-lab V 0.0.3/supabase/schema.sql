@@ -1042,6 +1042,48 @@ for insert
 to authenticated
 with check (auth.uid() = student_user_id);
 
+drop function if exists public.is_active_room_member(uuid, uuid);
+create function public.is_active_room_member(p_room_id uuid, p_user_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.room_members rm
+    where rm.room_id = p_room_id
+      and rm.user_id = p_user_id
+      and rm.state = 'active'
+  );
+$$;
+
+drop function if exists public.is_active_room_staff(uuid, uuid);
+create function public.is_active_room_staff(p_room_id uuid, p_user_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select
+    exists (
+      select 1
+      from public.rooms r
+      where r.id = p_room_id
+        and r.created_by = p_user_id
+    )
+    or exists (
+      select 1
+      from public.room_members rm
+      where rm.room_id = p_room_id
+        and rm.user_id = p_user_id
+        and rm.role_in_room in ('teacher', 'monitor')
+        and rm.state = 'active'
+    );
+$$;
+
 drop policy if exists "rooms_select_accessible" on public.rooms;
 create policy "rooms_select_accessible"
 on public.rooms
@@ -1049,13 +1091,7 @@ for select
 to authenticated
 using (
     auth.uid() = created_by
-    or exists (
-        select 1
-        from public.room_members
-        where room_members.room_id = public.rooms.id
-          and room_members.user_id = auth.uid()
-          and room_members.state = 'active'
-    )
+    or public.is_active_room_member(public.rooms.id, auth.uid())
 );
 
 drop policy if exists "rooms_insert_own" on public.rooms;
@@ -1072,25 +1108,11 @@ for update
 to authenticated
 using (
     auth.uid() = created_by
-    or exists (
-        select 1
-        from public.room_members
-        where room_members.room_id = public.rooms.id
-          and room_members.user_id = auth.uid()
-          and room_members.role_in_room in ('teacher', 'monitor')
-          and room_members.state = 'active'
-    )
+    or public.is_active_room_staff(public.rooms.id, auth.uid())
 )
 with check (
     auth.uid() = created_by
-    or exists (
-        select 1
-        from public.room_members
-        where room_members.room_id = public.rooms.id
-          and room_members.user_id = auth.uid()
-          and room_members.role_in_room in ('teacher', 'monitor')
-          and room_members.state = 'active'
-    )
+    or public.is_active_room_staff(public.rooms.id, auth.uid())
 );
 
 drop policy if exists "room_members_select_accessible" on public.room_members;
@@ -1100,14 +1122,7 @@ for select
 to authenticated
 using (
     auth.uid() = user_id
-    or exists (
-        select 1
-        from public.room_members as self_member
-        where self_member.room_id = public.room_members.room_id
-          and self_member.user_id = auth.uid()
-          and self_member.role_in_room in ('teacher', 'monitor')
-          and self_member.state = 'active'
-    )
+    or public.is_active_room_staff(public.room_members.room_id, auth.uid())
 );
 
 drop policy if exists "room_members_insert_self_or_teacher" on public.room_members;
@@ -1131,24 +1146,10 @@ on public.room_members
 for update
 to authenticated
 using (
-    exists (
-        select 1
-        from public.room_members as self_member
-        where self_member.room_id = public.room_members.room_id
-          and self_member.user_id = auth.uid()
-          and self_member.role_in_room in ('teacher', 'monitor')
-          and self_member.state = 'active'
-    )
+    public.is_active_room_staff(public.room_members.room_id, auth.uid())
 )
 with check (
-    exists (
-        select 1
-        from public.room_members as self_member
-        where self_member.room_id = public.room_members.room_id
-          and self_member.user_id = auth.uid()
-          and self_member.role_in_room in ('teacher', 'monitor')
-          and self_member.state = 'active'
-    )
+    public.is_active_room_staff(public.room_members.room_id, auth.uid())
 );
 
 drop policy if exists "student_sim_accounts_select_accessible" on public.student_sim_accounts;
