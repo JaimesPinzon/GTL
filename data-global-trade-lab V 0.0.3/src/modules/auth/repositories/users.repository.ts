@@ -16,8 +16,6 @@ type ProfileRow = {
     email: string | null;
     name: string | null;
     role: string | null;
-    balance: number | string | null;
-    initial_balance: number | string | null;
     created_at: string | null;
     updated_at: string | null;
 };
@@ -55,15 +53,17 @@ const mapSupabaseProfileToAuthUser = (
     createdAt: profile.created_at || nowIso(),
     updatedAt: profile.updated_at || nowIso(),
     lastLoginAt: authUser?.last_sign_in_at || profile.updated_at || profile.created_at || nowIso(),
-    balance: Number(profile.balance ?? 10000),
-    initialBalance: Number(profile.initial_balance ?? 10000),
+    // Trading balances are now room-scoped (room_members / room_group_members),
+    // not profile-scoped. Keep auth payload defaults for compatibility.
+    balance: 100000,
+    initialBalance: 100000,
     isActive: true,
 });
 
 const getSupabaseProfileById = async (userId: string) => {
     const { data, error } = await supabaseAdmin
         .from("profiles")
-        .select("user_id,email,name,role,balance,initial_balance,created_at,updated_at")
+        .select("user_id,email,name,role,created_at,updated_at")
         .eq("user_id", userId)
         .maybeSingle<ProfileRow>();
 
@@ -77,7 +77,7 @@ const getSupabaseProfileById = async (userId: string) => {
 const getSupabaseProfileByEmail = async (email: string) => {
     const { data, error } = await supabaseAdmin
         .from("profiles")
-        .select("user_id,email,name,role,balance,initial_balance,created_at,updated_at")
+        .select("user_id,email,name,role,created_at,updated_at")
         .eq("email", email)
         .maybeSingle<ProfileRow>();
 
@@ -149,16 +149,11 @@ export const getOrCreateUserFromSupabaseAccessToken = async (accessToken: string
     const nameFromMetadata = String(metadata.name || metadata.full_name || "").trim();
     const defaultName = email.split("@")[0] || "User";
     const role = String(metadata.role || "").trim().toLowerCase() === "teacher" ? "teacher" : "student";
-    const balance = Number(metadata.balance ?? 100000) || 100000;
-    const initialBalance = Number(metadata.initialBalance ?? metadata.initial_balance ?? 100000) || 100000;
-
     const { error: upsertError } = await supabaseAdmin.from("profiles").upsert({
         user_id: supabaseUser.id,
         email,
         name: nameFromMetadata || defaultName,
         role,
-        balance,
-        initial_balance: initialBalance,
     });
 
     if (upsertError) {
@@ -218,8 +213,6 @@ export const createUserRecord = async (input: {
         email: input.email,
         name: input.name,
         role: input.role,
-        balance: input.balance,
-        initial_balance: input.initialBalance,
     });
 
     if (upsertError) {
