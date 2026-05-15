@@ -136,3 +136,21 @@
 * Cambio: Se definio validacion de permiso para que solo el propietario de la sala (`created_by`) pueda ejecutar la eliminacion.
 * Correccion: Se implemento limpieza explicita de calificaciones y relaciones academicas antes del borrado final de la sala (`activity_grades`, `activity_submissions`, `activity_posts`, `activities`, `room_members`, `student_sim_accounts`, `balance_adjustments`, `positions`, `transactions`).
 * Eliminacion: Se habilito la eliminacion fisica de la sala en `rooms` en lugar de archivado operativo para este flujo.
+
+20261505
+
+* Agregacion: Se incorporo la migracion `supabase/room_groups_backend.sql` para habilitar grupos estables por sala (`room_groups`, `room_group_members`) como entidad independiente de actividades y trading.
+* Agregacion: Se extendio el modelo de actividades con `submission_mode`, `group_mode`, `max_group_members`, `allow_self_enrollment` y `portfolio_mode` para soportar flujos individuales y grupales.
+* Agregacion: Se extendio `activity_submissions` para soportar entregas por grupo (`group_id`) y trazabilidad de autor real (`submitted_by`), conservando compatibilidad con entregas individuales.
+* Agregacion: Se extendio `activity_grades` para soportar calificacion por grupo (`group_id`) sin romper la calificacion por estudiante (`user_id`).
+* Agregacion: Se adapto `student_sim_accounts` para portafolio por propietario (`owner_type = user|group`) agregando `owner_group_id` para trading colaborativo por equipo.
+* Cambio: Se reforzaron policies RLS de actividades, entregas y calificaciones con helpers `SECURITY DEFINER` para permisos por sala/grupo y para evitar recursiones por consultas directas sobre membresias.
+* Agregacion: Se agrego capa backend de grupos con endpoints autenticados:
+  - `GET /api/rooms/groups/list`
+  - `POST /api/rooms/groups/create`
+  - `POST /api/rooms/groups/update`
+  - `POST /api/rooms/groups/members`
+  - `POST /api/rooms/groups/auto-assign`
+  - `POST /api/rooms/groups/provision-portfolios`
+* Agregacion: Se creo util compartido `src/app/api/rooms/_shared.ts` para reutilizar auth/cors/permisos de sala en rutas de grupos.
+* Correccion: Se verifico compilacion completa del backend con `npm run build` incluyendo todas las rutas nuevas de grupos.
