@@ -154,3 +154,12 @@
   - `POST /api/rooms/groups/provision-portfolios`
 * Agregacion: Se creo util compartido `src/app/api/rooms/_shared.ts` para reutilizar auth/cors/permisos de sala en rutas de grupos.
 * Correccion: Se verifico compilacion completa del backend con `npm run build` incluyendo todas las rutas nuevas de grupos.
+
+20261405
+
+* Correccion: Se corrigio la recursividad infinita de RLS en `room_members` (`42P17`) migrando validaciones de membresia a funciones `SECURITY DEFINER`.
+* Cambio: Se ajustaron policies de acceso en salas, actividades y calificaciones para validar membresia activa sin autorefenciar `room_members` dentro de su propia policy.
+* Correccion: Se integro la solucion de grupos directamente en `supabase/schema.sql` con orden de definicion compatible para evitar errores de dependencia en despliegue.
+* Correccion: Se reorganizo la seccion SQL de grupos para evitar referencias prematuras a `public.room_group_members`, eliminando el error `42P01 relation does not exist`.
+* Correccion: Se evito el bloqueo por dependencia de funciones (`2BP01`) reemplazando drops destructivos por actualizacion compatible de funciones usadas por policies activas.
+* Eliminacion: Se retiro la validacion recursiva directa de membresias en policies que provocaba fallos 500 en consultas de `activities` y `activity_grades`.
