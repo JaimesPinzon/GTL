@@ -139,7 +139,7 @@
 
 20261505
 
-* Agregacion: Se incorporo la migracion `supabase/room_groups_backend.sql` para habilitar grupos estables por sala (`room_groups`, `room_group_members`) como entidad independiente de actividades y trading.
+* Agregacion: Se incorporo en `supabase/schema.sql` la arquitectura de grupos estables por sala (`room_groups`, `room_group_members`) como entidad independiente de actividades y trading.
 * Agregacion: Se extendio el modelo de actividades con `submission_mode`, `group_mode`, `max_group_members`, `allow_self_enrollment` y `portfolio_mode` para soportar flujos individuales y grupales.
 * Agregacion: Se extendio `activity_submissions` para soportar entregas por grupo (`group_id`) y trazabilidad de autor real (`submitted_by`), conservando compatibilidad con entregas individuales.
 * Agregacion: Se extendio `activity_grades` para soportar calificacion por grupo (`group_id`) sin romper la calificacion por estudiante (`user_id`).
