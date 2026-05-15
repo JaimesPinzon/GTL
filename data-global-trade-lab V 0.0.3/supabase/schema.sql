@@ -595,16 +595,6 @@ create index if not exists positions_room_user_idx
 create index if not exists transactions_room_user_idx
     on public.transactions (room_id, user_id, date desc);
 
-create table if not exists public.classes (
-    id uuid primary key default gen_random_uuid(),
-    teacher_user_id uuid not null references public.profiles (user_id) on delete cascade,
-    class_name text not null,
-    class_description text default '',
-    class_code text not null unique,
-    archived boolean not null default false,
-    created_at timestamptz not null default timezone('utc', now()),
-    updated_at timestamptz not null default timezone('utc', now())
-);
 
 create index if not exists classes_teacher_user_id_idx
     on public.classes (teacher_user_id, created_at desc);
@@ -616,9 +606,6 @@ create table if not exists public.class_memberships (
     joined_at timestamptz not null default timezone('utc', now()),
     unique (class_id, student_user_id)
 );
-
-create index if not exists class_memberships_student_user_id_idx
-    on public.class_memberships (student_user_id, joined_at desc);
 
 create table if not exists public.rooms (
     id uuid primary key default gen_random_uuid(),

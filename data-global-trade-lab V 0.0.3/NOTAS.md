@@ -163,3 +163,10 @@
 * Correccion: Se reorganizo la seccion SQL de grupos para evitar referencias prematuras a `public.room_group_members`, eliminando el error `42P01 relation does not exist`.
 * Correccion: Se evito el bloqueo por dependencia de funciones (`2BP01`) reemplazando drops destructivos por actualizacion compatible de funciones usadas por policies activas.
 * Eliminacion: Se retiro la validacion recursiva directa de membresias en policies que provocaba fallos 500 en consultas de `activities` y `activity_grades`.
+
+20261405
+
+* Correccion: Se retiraron referencias de autenticacion a `profiles.balance` y `profiles.initial_balance` en `src/modules/auth/repositories/users.repository.ts` para compatibilidad con el modelo de saldo por sala.
+* Cambio: Se ajustaron consultas `select` y operaciones `upsert` de `profiles` para trabajar solo con datos de identidad (`user_id`, `email`, `name`, `role`, `created_at`, `updated_at`).
+* Correccion: Se normalizo el mapeo de usuario autenticado para mantener `balance` e `initialBalance` como valores de compatibilidad sin depender de columnas eliminadas en `profiles`.
+* Correccion: Se valido compilacion del backend con `npm run build` despues de los ajustes de autenticacion.
