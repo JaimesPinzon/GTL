@@ -1971,3 +1971,169 @@ with check (
 set check_function_bodies = on;
 
 
+
+
+-- ---------------------------------------------------------------------------
+-- Room balances moved from profiles/student_sim_accounts to room members/groups
+-- Source: docs/sql/room-balances-room-members-and-groups.sql
+-- ---------------------------------------------------------------------------
+
+-- Migration: move trading balances from profiles/student_sim_accounts
+-- into room_members (individual) and room_group_members (shared group).
+--
+-- Run this before removing legacy read/write paths and after ensuring
+-- room_groups/room_group_members tables already exist.
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- 1) Individual portfolio fields per room member
+-- ---------------------------------------------------------------------------
+alter table public.room_members
+  add column if not exists individual_available_balance numeric(14, 2) default 0,
+  add column if not exists individual_blocked_balance numeric(14, 2) default 0,
+  add column if not exists individual_total_balance numeric(14, 2) default 0,
+  add column if not exists individual_currency text default 'USD',
+  add column if not exists individual_realized_pnl numeric(14, 2) default 0,
+  add column if not exists individual_unrealized_pnl numeric(14, 2) default 0,
+  add column if not exists individual_equity numeric(14, 2) default 0;
+
+create index if not exists room_members_room_student_state_idx
+  on public.room_members (room_id, role_in_room, state);
+
+-- Backfill from legacy student_sim_accounts when available, otherwise room default.
+update public.room_members rm
+set
+  individual_available_balance = coalesce(
+    rm.individual_available_balance,
+    s.available_balance,
+    r.default_balance,
+    0
+  ),
+  individual_blocked_balance = coalesce(
+    rm.individual_blocked_balance,
+    s.blocked_balance,
+    0
+  ),
+  individual_total_balance = coalesce(
+    rm.individual_total_balance,
+    s.total_balance,
+    coalesce(s.available_balance, r.default_balance, 0) + coalesce(s.blocked_balance, 0)
+  ),
+  individual_currency = coalesce(
+    nullif(rm.individual_currency, ''),
+    s.currency,
+    r.default_currency,
+    'USD'
+  ),
+  individual_realized_pnl = coalesce(rm.individual_realized_pnl, 0),
+  individual_unrealized_pnl = coalesce(rm.individual_unrealized_pnl, 0),
+  individual_equity = coalesce(
+    rm.individual_equity,
+    coalesce(s.total_balance, coalesce(s.available_balance, r.default_balance, 0) + coalesce(s.blocked_balance, 0))
+  )
+from public.rooms r
+left join public.student_sim_accounts s
+  on s.room_id = r.id
+where rm.room_id = r.id
+  and s.user_id = rm.user_id
+  and rm.role_in_room = 'student';
+
+-- ---------------------------------------------------------------------------
+-- 2) Shared portfolio fields per active group membership
+-- ---------------------------------------------------------------------------
+alter table public.room_group_members
+  add column if not exists group_available_balance numeric(14, 2) default 0,
+  add column if not exists group_blocked_balance numeric(14, 2) default 0,
+  add column if not exists group_total_balance numeric(14, 2) default 0,
+  add column if not exists group_currency text default 'USD',
+  add column if not exists group_realized_pnl numeric(14, 2) default 0,
+  add column if not exists group_unrealized_pnl numeric(14, 2) default 0,
+  add column if not exists group_equity numeric(14, 2) default 0;
+
+create index if not exists room_group_members_room_group_state_idx
+  on public.room_group_members (room_id, group_id, state);
+
+-- For active groups, initialize shared balances as aggregation of active members'
+-- individual balances.
+with group_aggregates as (
+  select
+    rgm.room_id,
+    rgm.group_id,
+    sum(coalesce(rm.individual_available_balance, 0)) as available_balance,
+    sum(coalesce(rm.individual_blocked_balance, 0)) as blocked_balance,
+    sum(coalesce(rm.individual_total_balance, 0)) as total_balance,
+    sum(coalesce(rm.individual_realized_pnl, 0)) as realized_pnl,
+    sum(coalesce(rm.individual_unrealized_pnl, 0)) as unrealized_pnl,
+    sum(coalesce(rm.individual_equity, coalesce(rm.individual_total_balance, 0))) as equity,
+    min(coalesce(nullif(rm.individual_currency, ''), r.default_currency, 'USD')) as currency
+  from public.room_group_members rgm
+  join public.room_groups rg
+    on rg.id = rgm.group_id
+  left join public.room_members rm
+    on rm.room_id = rgm.room_id
+   and rm.user_id = rgm.user_id
+   and rm.state = 'active'
+  left join public.rooms r
+    on r.id = rgm.room_id
+  where rgm.state = 'active'
+    and rg.state = 'active'
+  group by rgm.room_id, rgm.group_id
+)
+update public.room_group_members rgm
+set
+  group_available_balance = coalesce(rgm.group_available_balance, ga.available_balance, 0),
+  group_blocked_balance = coalesce(rgm.group_blocked_balance, ga.blocked_balance, 0),
+  group_total_balance = coalesce(rgm.group_total_balance, ga.total_balance, 0),
+  group_currency = coalesce(nullif(rgm.group_currency, ''), ga.currency, 'USD'),
+  group_realized_pnl = coalesce(rgm.group_realized_pnl, ga.realized_pnl, 0),
+  group_unrealized_pnl = coalesce(rgm.group_unrealized_pnl, ga.unrealized_pnl, 0),
+  group_equity = coalesce(rgm.group_equity, ga.equity, coalesce(rgm.group_total_balance, ga.total_balance, 0))
+from group_aggregates ga
+where rgm.room_id = ga.room_id
+  and rgm.group_id = ga.group_id
+  and rgm.state = 'active';
+
+-- ---------------------------------------------------------------------------
+-- 3) Auto-seed balances for future students joining a room
+-- ---------------------------------------------------------------------------
+create or replace function public.seed_room_member_balance_defaults()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  room_default_balance numeric(14, 2) := 0;
+  room_default_currency text := 'USD';
+begin
+  if new.role_in_room = 'student' then
+    select
+      coalesce(r.default_balance, 0),
+      coalesce(nullif(r.default_currency, ''), 'USD')
+    into room_default_balance, room_default_currency
+    from public.rooms r
+    where r.id = new.room_id;
+
+    new.individual_available_balance := coalesce(new.individual_available_balance, room_default_balance, 0);
+    new.individual_blocked_balance := coalesce(new.individual_blocked_balance, 0);
+    new.individual_total_balance := coalesce(
+      new.individual_total_balance,
+      coalesce(new.individual_available_balance, 0) + coalesce(new.individual_blocked_balance, 0)
+    );
+    new.individual_currency := coalesce(nullif(new.individual_currency, ''), room_default_currency, 'USD');
+    new.individual_realized_pnl := coalesce(new.individual_realized_pnl, 0);
+    new.individual_unrealized_pnl := coalesce(new.individual_unrealized_pnl, 0);
+    new.individual_equity := coalesce(new.individual_equity, new.individual_total_balance);
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists room_members_seed_balance_defaults on public.room_members;
+create trigger room_members_seed_balance_defaults
+before insert on public.room_members
+for each row
+execute function public.seed_room_member_balance_defaults();
+
+commit;
