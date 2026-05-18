@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { env, serverEnv } from "@/app/utils/env";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
+import { AuthHttpError } from "@/modules/auth/errors";
 import { nowIso, randomId } from "@/modules/auth/lib/crypto";
 import { hashPassword, verifyPassword } from "@/modules/auth/lib/passwords";
 import { readCollection, writeCollection } from "@/modules/auth/repositories/file-store";
@@ -21,6 +22,7 @@ type ProfileRow = {
 };
 
 const usesSupabaseUsers = serverEnv.AUTH_USERS_STORE === "supabase";
+const DEFAULT_COMPAT_BALANCE = 100000;
 
 const createPasswordAuthClient = () =>
     createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
@@ -40,6 +42,68 @@ const readFileUsers = async () => {
 };
 
 const writeFileUsers = (users: AuthUserRecord[]) => writeCollection(usersFile, "users", users);
+
+const normalizeBalanceValue = (value: unknown, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const isNotNullBalanceConstraintError = (error: unknown) => {
+    const code = String((error as { code?: string })?.code || "");
+    const status = Number((error as { status?: number })?.status || 0);
+    const message = String((error as { message?: string })?.message || "").toLowerCase();
+    const details = String((error as { details?: string })?.details || "").toLowerCase();
+    const combined = `${message} ${details}`;
+
+    const mentionsBalanceColumns =
+        combined.includes("balance") ||
+        combined.includes("initial_balance") ||
+        combined.includes("initialbalance");
+
+    if (!mentionsBalanceColumns) {
+        return false;
+    }
+
+    return code === "23502" || status === 400 || combined.includes("not-null constraint");
+};
+
+const upsertProfileWithSchemaCompatibility = async (input: {
+    userId: string;
+    email: string;
+    name: string;
+    role: string;
+    balance?: number;
+    initialBalance?: number;
+}) => {
+    const basePayload = {
+        user_id: input.userId,
+        email: input.email,
+        name: input.name,
+        role: input.role,
+    };
+
+    const { error: baseError } = await supabaseAdmin.from("profiles").upsert(basePayload);
+    if (!baseError) {
+        return;
+    }
+
+    if (!isNotNullBalanceConstraintError(baseError)) {
+        throw baseError;
+    }
+
+    const balance = normalizeBalanceValue(input.balance, DEFAULT_COMPAT_BALANCE);
+    const initialBalance = normalizeBalanceValue(input.initialBalance, balance);
+    const compatibilityPayload = {
+        ...basePayload,
+        balance,
+        initial_balance: initialBalance,
+    };
+
+    const { error: compatibilityError } = await supabaseAdmin.from("profiles").upsert(compatibilityPayload);
+    if (compatibilityError) {
+        throw compatibilityError;
+    }
+};
 
 const mapSupabaseProfileToAuthUser = (
     profile: ProfileRow,
@@ -149,16 +213,14 @@ export const getOrCreateUserFromSupabaseAccessToken = async (accessToken: string
     const nameFromMetadata = String(metadata.name || metadata.full_name || "").trim();
     const defaultName = email.split("@")[0] || "User";
     const role = String(metadata.role || "").trim().toLowerCase() === "teacher" ? "teacher" : "student";
-    const { error: upsertError } = await supabaseAdmin.from("profiles").upsert({
-        user_id: supabaseUser.id,
+    await upsertProfileWithSchemaCompatibility({
+        userId: supabaseUser.id,
         email,
         name: nameFromMetadata || defaultName,
         role,
+        balance: normalizeBalanceValue(metadata.balance, DEFAULT_COMPAT_BALANCE),
+        initialBalance: normalizeBalanceValue(metadata.initialBalance, DEFAULT_COMPAT_BALANCE),
     });
-
-    if (upsertError) {
-        throw upsertError;
-    }
 
     return getUserById(supabaseUser.id);
 };
@@ -205,19 +267,37 @@ export const createUserRecord = async (input: {
     });
 
     if (error || !data.user) {
+        const normalizedMessage = String(error?.message || "").toLowerCase();
+        const status = Number((error as { status?: number })?.status || 0);
+        const errorCode = String((error as { code?: string })?.code || "").toLowerCase();
+
+        if (status === 422 || normalizedMessage.includes("already registered")) {
+            throw new AuthHttpError(409, "An account with that email already exists.");
+        }
+
+        if (
+            status === 500 &&
+            (errorCode === "unexpected_failure" ||
+                normalizedMessage.includes("database error creating new user") ||
+                normalizedMessage.includes("database error saving new user"))
+        ) {
+            throw new AuthHttpError(
+                500,
+                "Supabase auth trigger failed while creating the user. Check public.handle_new_user and the profiles table schema."
+            );
+        }
+
         throw error || new Error("Failed to create auth user.");
     }
 
-    const { error: upsertError } = await supabaseAdmin.from("profiles").upsert({
-        user_id: data.user.id,
+    await upsertProfileWithSchemaCompatibility({
+        userId: data.user.id,
         email: input.email,
         name: input.name,
         role: input.role,
+        balance: input.balance,
+        initialBalance: input.initialBalance,
     });
-
-    if (upsertError) {
-        throw upsertError;
-    }
 
     return (await getUserById(data.user.id)) as AuthUserRecord;
 };

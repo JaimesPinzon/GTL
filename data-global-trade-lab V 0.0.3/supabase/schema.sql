@@ -1921,12 +1921,23 @@ begin
   from public.rooms r
   where r.id = new.room_id;
 
-  new.individual_available_balance := coalesce(new.individual_available_balance, room_default_balance, 0);
-  new.individual_blocked_balance := coalesce(new.individual_blocked_balance, 0);
-  new.individual_total_balance := coalesce(
-    new.individual_total_balance,
-    coalesce(new.individual_available_balance, 0) + coalesce(new.individual_blocked_balance, 0)
+  -- When inserts rely on table defaults (0), treat that as "unset" and apply room defaults.
+  new.individual_available_balance := coalesce(
+    nullif(new.individual_available_balance, 0),
+    room_default_balance,
+    0
   );
+  new.individual_blocked_balance := coalesce(new.individual_blocked_balance, 0);
+  new.individual_total_balance := case
+    when new.individual_total_balance is null then
+      coalesce(new.individual_available_balance, 0) + coalesce(new.individual_blocked_balance, 0)
+    when new.individual_total_balance = 0
+      and coalesce(new.individual_available_balance, 0) > 0
+      and coalesce(new.individual_blocked_balance, 0) = 0 then
+      coalesce(new.individual_available_balance, 0)
+    else
+      new.individual_total_balance
+  end;
   new.individual_currency := coalesce(nullif(new.individual_currency, ''), room_default_currency, 'USD');
   new.individual_realized_pnl := coalesce(new.individual_realized_pnl, 0);
   new.individual_unrealized_pnl := coalesce(new.individual_unrealized_pnl, 0);
@@ -1943,3 +1954,32 @@ for each row
 execute function public.seed_room_member_balance_defaults();
 
 commit;
+
+-- ---------------------------------------------------------------------------
+-- Realtime publication for room balances
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'room_members'
+    ) then
+      execute 'alter publication supabase_realtime add table public.room_members';
+    end if;
+
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'room_group_members'
+    ) then
+      execute 'alter publication supabase_realtime add table public.room_group_members';
+    end if;
+  end if;
+end;
+$$;
