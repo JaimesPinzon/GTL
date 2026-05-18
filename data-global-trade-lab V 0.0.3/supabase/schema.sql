@@ -596,17 +596,6 @@ create index if not exists transactions_room_user_idx
     on public.transactions (room_id, user_id, date desc);
 
 
-create index if not exists classes_teacher_user_id_idx
-    on public.classes (teacher_user_id, created_at desc);
-
-create table if not exists public.class_memberships (
-    id uuid primary key default gen_random_uuid(),
-    class_id uuid not null references public.classes (id) on delete cascade,
-    student_user_id uuid not null references public.profiles (user_id) on delete cascade,
-    joined_at timestamptz not null default timezone('utc', now()),
-    unique (class_id, student_user_id)
-);
-
 create table if not exists public.rooms (
     id uuid primary key default gen_random_uuid(),
     name text not null,
@@ -771,12 +760,6 @@ before update on public.positions
 for each row
 execute function public.handle_updated_at();
 
-drop trigger if exists classes_set_updated_at on public.classes;
-create trigger classes_set_updated_at
-before update on public.classes
-for each row
-execute function public.handle_updated_at();
-
 drop trigger if exists rooms_set_updated_at on public.rooms;
 create trigger rooms_set_updated_at
 before update on public.rooms
@@ -884,8 +867,6 @@ execute function public.handle_new_user();
 alter table public.profiles enable row level security;
 alter table public.positions enable row level security;
 alter table public.transactions enable row level security;
-alter table public.classes enable row level security;
-alter table public.class_memberships enable row level security;
 alter table public.rooms enable row level security;
 alter table public.room_members enable row level security;
 alter table public.student_sim_accounts enable row level security;
@@ -968,66 +949,6 @@ for all
 to authenticated
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
-
-drop policy if exists "classes_select_accessible" on public.classes;
-create policy "classes_select_accessible"
-on public.classes
-for select
-to authenticated
-using (
-    auth.uid() = teacher_user_id
-    or exists (
-        select 1
-        from public.class_memberships
-        where class_memberships.class_id = public.classes.id
-          and class_memberships.student_user_id = auth.uid()
-    )
-);
-
-drop policy if exists "classes_insert_teacher" on public.classes;
-create policy "classes_insert_teacher"
-on public.classes
-for insert
-to authenticated
-with check (
-    auth.uid() = teacher_user_id
-    and exists (
-        select 1
-        from public.profiles
-        where user_id = auth.uid()
-          and role = 'teacher'
-    )
-);
-
-drop policy if exists "classes_update_teacher" on public.classes;
-create policy "classes_update_teacher"
-on public.classes
-for update
-to authenticated
-using (auth.uid() = teacher_user_id)
-with check (auth.uid() = teacher_user_id);
-
-drop policy if exists "class_memberships_select_accessible" on public.class_memberships;
-create policy "class_memberships_select_accessible"
-on public.class_memberships
-for select
-to authenticated
-using (
-    auth.uid() = student_user_id
-    or exists (
-        select 1
-        from public.classes
-        where classes.id = public.class_memberships.class_id
-          and classes.teacher_user_id = auth.uid()
-    )
-);
-
-drop policy if exists "class_memberships_insert_student" on public.class_memberships;
-create policy "class_memberships_insert_student"
-on public.class_memberships
-for insert
-to authenticated
-with check (auth.uid() = student_user_id);
 
 create or replace function public.is_active_room_member(p_room_id uuid, p_user_id uuid)
 returns boolean
@@ -2082,7 +2003,7 @@ where rgm.room_id = ga.room_id
   and rgm.state = 'active';
 
 -- ---------------------------------------------------------------------------
--- 3) Auto-seed balances for future students joining a room
+-- 3) Auto-seed balances for future room members joining a room
 -- ---------------------------------------------------------------------------
 create or replace function public.seed_room_member_balance_defaults()
 returns trigger
@@ -2093,25 +2014,23 @@ declare
   room_default_balance numeric(14, 2) := 0;
   room_default_currency text := 'USD';
 begin
-  if new.role_in_room = 'student' then
-    select
-      coalesce(r.default_balance, 0),
-      coalesce(nullif(r.default_currency, ''), 'USD')
-    into room_default_balance, room_default_currency
-    from public.rooms r
-    where r.id = new.room_id;
+  select
+    coalesce(r.default_balance, 0),
+    coalesce(nullif(r.default_currency, ''), 'USD')
+  into room_default_balance, room_default_currency
+  from public.rooms r
+  where r.id = new.room_id;
 
-    new.individual_available_balance := coalesce(new.individual_available_balance, room_default_balance, 0);
-    new.individual_blocked_balance := coalesce(new.individual_blocked_balance, 0);
-    new.individual_total_balance := coalesce(
-      new.individual_total_balance,
-      coalesce(new.individual_available_balance, 0) + coalesce(new.individual_blocked_balance, 0)
-    );
-    new.individual_currency := coalesce(nullif(new.individual_currency, ''), room_default_currency, 'USD');
-    new.individual_realized_pnl := coalesce(new.individual_realized_pnl, 0);
-    new.individual_unrealized_pnl := coalesce(new.individual_unrealized_pnl, 0);
-    new.individual_equity := coalesce(new.individual_equity, new.individual_total_balance);
-  end if;
+  new.individual_available_balance := coalesce(new.individual_available_balance, room_default_balance, 0);
+  new.individual_blocked_balance := coalesce(new.individual_blocked_balance, 0);
+  new.individual_total_balance := coalesce(
+    new.individual_total_balance,
+    coalesce(new.individual_available_balance, 0) + coalesce(new.individual_blocked_balance, 0)
+  );
+  new.individual_currency := coalesce(nullif(new.individual_currency, ''), room_default_currency, 'USD');
+  new.individual_realized_pnl := coalesce(new.individual_realized_pnl, 0);
+  new.individual_unrealized_pnl := coalesce(new.individual_unrealized_pnl, 0);
+  new.individual_equity := coalesce(new.individual_equity, new.individual_total_balance);
 
   return new;
 end;

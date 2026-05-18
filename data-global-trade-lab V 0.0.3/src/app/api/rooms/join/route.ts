@@ -140,32 +140,74 @@ export async function POST(request: Request) {
       ? existingMembership.role_in_room
       : "student";
 
-  const { error: memberError } = await supabaseAdmin.from("room_members").upsert(
-    {
-      room_id: room.id,
-      user_id: auth.user.id,
-      role_in_room: nextRoleInRoom,
-      state: "active",
-    },
-    { onConflict: "room_id,user_id" }
-  );
+  const roomDefaultBalance = Number.isFinite(Number(room.default_balance)) ? Number(room.default_balance) : 0;
+  const roomDefaultCurrency =
+    typeof room.default_currency === "string" && room.default_currency.trim()
+      ? room.default_currency.trim().toUpperCase()
+      : "USD";
+
+  const memberMutation = existingMembership
+    ? supabaseAdmin
+        .from("room_members")
+        .update({
+          role_in_room: nextRoleInRoom,
+          state: "active",
+        })
+        .eq("room_id", room.id)
+        .eq("user_id", auth.user.id)
+    : supabaseAdmin.from("room_members").insert({
+        room_id: room.id,
+        user_id: auth.user.id,
+        role_in_room: nextRoleInRoom,
+        state: "active",
+        individual_available_balance: roomDefaultBalance,
+        individual_blocked_balance: 0,
+        individual_total_balance: roomDefaultBalance,
+        individual_currency: roomDefaultCurrency,
+        individual_realized_pnl: 0,
+        individual_unrealized_pnl: 0,
+        individual_equity: roomDefaultBalance,
+      });
+
+  const { error: memberError } = await memberMutation;
 
   if (memberError) {
     return NextResponse.json({ ok: false, error: memberError.message }, { status: 500, headers: corsHeaders });
   }
 
-  const { error: accountError } = await supabaseAdmin.from("student_sim_accounts").upsert(
-    {
-      room_id: room.id,
-      user_id: auth.user.id,
-      available_balance: room.default_balance,
-      blocked_balance: 0,
-      total_balance: room.default_balance,
-      currency: room.default_currency,
-      state: "active",
-    },
-    { onConflict: "room_id,user_id" }
-  );
+  const { data: existingAccount, error: existingAccountError } = await supabaseAdmin
+    .from("student_sim_accounts")
+    .select("id")
+    .eq("room_id", room.id)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+
+  if (existingAccountError) {
+    return NextResponse.json(
+      { ok: false, error: existingAccountError.message },
+      { status: 500, headers: corsHeaders }
+    );
+  }
+
+  const accountMutation = existingAccount
+    ? supabaseAdmin
+        .from("student_sim_accounts")
+        .update({
+          state: "active",
+        })
+        .eq("room_id", room.id)
+        .eq("user_id", auth.user.id)
+    : supabaseAdmin.from("student_sim_accounts").insert({
+        room_id: room.id,
+        user_id: auth.user.id,
+        available_balance: roomDefaultBalance,
+        blocked_balance: 0,
+        total_balance: roomDefaultBalance,
+        currency: roomDefaultCurrency,
+        state: "active",
+      });
+
+  const { error: accountError } = await accountMutation;
 
   if (accountError) {
     return NextResponse.json({ ok: false, error: accountError.message }, { status: 500, headers: corsHeaders });

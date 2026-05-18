@@ -83,15 +83,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: roomError.message }, { status: 500, headers: corsHeaders });
     }
 
-    const { error: memberError } = await supabaseAdmin.from("room_members").upsert(
-      {
-        room_id: room.id,
-        user_id: ownerUserId,
-        role_in_room: "teacher",
-        state: "active",
-      },
-      { onConflict: "room_id,user_id" }
-    );
+    const roomDefaultBalance = Number.isFinite(Number(room.default_balance)) ? Number(room.default_balance) : defaultBalance;
+    const roomDefaultCurrency =
+      typeof room.default_currency === "string" && room.default_currency.trim()
+        ? room.default_currency.trim().toUpperCase()
+        : defaultCurrency;
+
+    const { error: memberError } = await supabaseAdmin.from("room_members").insert({
+      room_id: room.id,
+      user_id: ownerUserId,
+      role_in_room: "teacher",
+      state: "active",
+      individual_available_balance: roomDefaultBalance,
+      individual_blocked_balance: 0,
+      individual_total_balance: roomDefaultBalance,
+      individual_currency: roomDefaultCurrency,
+      individual_realized_pnl: 0,
+      individual_unrealized_pnl: 0,
+      individual_equity: roomDefaultBalance,
+    });
 
     if (memberError) {
       return NextResponse.json({ ok: false, error: memberError.message }, { status: 500, headers: corsHeaders });
