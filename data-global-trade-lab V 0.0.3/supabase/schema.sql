@@ -38,9 +38,6 @@ drop policy if exists "rooms_update_teacher" on public.rooms;
 drop policy if exists "room_members_select_accessible" on public.room_members;
 drop policy if exists "room_members_insert_self_or_teacher" on public.room_members;
 drop policy if exists "room_members_update_teacher" on public.room_members;
-drop policy if exists "student_sim_accounts_select_accessible" on public.student_sim_accounts;
-drop policy if exists "student_sim_accounts_insert_accessible" on public.student_sim_accounts;
-drop policy if exists "student_sim_accounts_update_teacher" on public.student_sim_accounts;
 drop policy if exists "balance_adjustments_select_accessible" on public.balance_adjustments;
 drop policy if exists "balance_adjustments_insert_teacher" on public.balance_adjustments;
 drop policy if exists "activities_select_room_members" on public.activities;
@@ -627,19 +624,7 @@ create table if not exists public.room_members (
 create index if not exists room_members_user_idx
     on public.room_members (user_id, joined_at desc);
 
-create table if not exists public.student_sim_accounts (
-    id uuid primary key default gen_random_uuid(),
-    room_id uuid not null references public.rooms (id) on delete cascade,
-    user_id uuid not null references public.profiles (user_id) on delete cascade,
-    available_balance numeric(14, 2) not null default 0,
-    blocked_balance numeric(14, 2) not null default 0,
-    total_balance numeric(14, 2) not null default 0,
-    currency text not null default 'USD',
-    state text not null default 'active' check (state in ('active', 'suspended', 'archived')),
-    created_at timestamptz not null default timezone('utc', now()),
-    updated_at timestamptz not null default timezone('utc', now()),
-    unique (room_id, user_id)
-);
+drop table if exists public.student_sim_accounts cascade;
 
 create table if not exists public.balance_adjustments (
     id uuid primary key default gen_random_uuid(),
@@ -766,12 +751,6 @@ before update on public.rooms
 for each row
 execute function public.handle_updated_at();
 
-drop trigger if exists student_sim_accounts_set_updated_at on public.student_sim_accounts;
-create trigger student_sim_accounts_set_updated_at
-before update on public.student_sim_accounts
-for each row
-execute function public.handle_updated_at();
-
 drop trigger if exists activities_set_updated_at on public.activities;
 create trigger activities_set_updated_at
 before update on public.activities
@@ -869,7 +848,6 @@ alter table public.positions enable row level security;
 alter table public.transactions enable row level security;
 alter table public.rooms enable row level security;
 alter table public.room_members enable row level security;
-alter table public.student_sim_accounts enable row level security;
 alter table public.balance_adjustments enable row level security;
 alter table public.activities enable row level security;
 alter table public.activity_posts enable row level security;
@@ -1058,66 +1036,21 @@ with check (
     public.is_active_room_staff(public.room_members.room_id, auth.uid())
 );
 
-drop policy if exists "student_sim_accounts_select_accessible" on public.student_sim_accounts;
-create policy "student_sim_accounts_select_accessible"
-on public.student_sim_accounts
-for select
-to authenticated
-using (
-    auth.uid() = user_id
-    or exists (
-        select 1
-        from public.room_members
-        where room_members.room_id = public.student_sim_accounts.room_id
-          and room_members.user_id = auth.uid()
-          and room_members.role_in_room in ('teacher', 'monitor')
-          and room_members.state = 'active'
-    )
-);
-
-drop policy if exists "student_sim_accounts_insert_accessible" on public.student_sim_accounts;
-create policy "student_sim_accounts_insert_accessible"
-on public.student_sim_accounts
-for insert
-to authenticated
-with check (
-    auth.uid() = user_id
-    or exists (
-        select 1
-        from public.room_members
-        where room_members.room_id = public.student_sim_accounts.room_id
-          and room_members.user_id = auth.uid()
-          and room_members.role_in_room in ('teacher', 'monitor')
-          and room_members.state = 'active'
-    )
-);
-
-drop policy if exists "student_sim_accounts_update_teacher" on public.student_sim_accounts;
-create policy "student_sim_accounts_update_teacher"
-on public.student_sim_accounts
+drop policy if exists "room_members_update_self_active" on public.room_members;
+create policy "room_members_update_self_active"
+on public.room_members
 for update
 to authenticated
 using (
-    auth.uid() = user_id
-    or exists (
-        select 1
-        from public.room_members
-        where room_members.room_id = public.student_sim_accounts.room_id
-          and room_members.user_id = auth.uid()
-          and room_members.role_in_room in ('teacher', 'monitor')
-          and room_members.state = 'active'
-    )
+    auth.uid() = public.room_members.user_id
+    and public.room_members.role_in_room = 'student'
+    and public.is_active_room_member(public.room_members.room_id, auth.uid())
 )
 with check (
-    auth.uid() = user_id
-    or exists (
-        select 1
-        from public.room_members
-        where room_members.room_id = public.student_sim_accounts.room_id
-          and room_members.user_id = auth.uid()
-          and room_members.role_in_room in ('teacher', 'monitor')
-          and room_members.state = 'active'
-    )
+    auth.uid() = public.room_members.user_id
+    and public.room_members.role_in_room = 'student'
+    and public.room_members.state = 'active'
+    and public.is_active_room_member(public.room_members.room_id, auth.uid())
 );
 
 drop policy if exists "balance_adjustments_select_accessible" on public.balance_adjustments;
@@ -1655,35 +1588,6 @@ alter table public.activity_grades
   );
 
 -- ---------------------------------------------------------------------------
--- Portfolio/account ownership extensions (compatible with existing table)
--- ---------------------------------------------------------------------------
-
-alter table public.student_sim_accounts
-  add column if not exists owner_type text not null default 'user'
-    check (owner_type in ('user', 'group')),
-  add column if not exists owner_group_id uuid references public.room_groups (id) on delete cascade;
-
-alter table public.student_sim_accounts
-  alter column user_id drop not null;
-
-update public.student_sim_accounts
-set owner_type = 'user'
-where owner_type is null;
-
-alter table public.student_sim_accounts
-  drop constraint if exists student_sim_accounts_owner_target_check;
-
-alter table public.student_sim_accounts
-  add constraint student_sim_accounts_owner_target_check
-  check (
-    (owner_type = 'user' and user_id is not null and owner_group_id is null)
-    or (owner_type = 'group' and owner_group_id is not null and user_id is null)
-  );
-
-create unique index if not exists student_sim_accounts_unique_group_owner
-  on public.student_sim_accounts (room_id, owner_group_id);
-
--- ---------------------------------------------------------------------------
 -- updated_at triggers
 -- ---------------------------------------------------------------------------
 
@@ -1882,12 +1786,12 @@ set check_function_bodies = on;
 
 
 -- ---------------------------------------------------------------------------
--- Room balances moved from profiles/student_sim_accounts to room members/groups
+-- Room balances managed directly in room members/groups
 -- Source: docs/sql/room-balances-room-members-and-groups.sql
 -- ---------------------------------------------------------------------------
 
--- Migration: move trading balances from profiles/student_sim_accounts
--- into room_members (individual) and room_group_members (shared group).
+-- Migration: enforce trading balances on room_members (individual)
+-- and room_group_members (shared group).
 --
 -- Run this before removing legacy read/write paths and after ensuring
 -- room_groups/room_group_members tables already exist.
@@ -1909,28 +1813,24 @@ alter table public.room_members
 create index if not exists room_members_room_student_state_idx
   on public.room_members (room_id, role_in_room, state);
 
--- Backfill from legacy student_sim_accounts when available, otherwise room default.
+-- Backfill from room defaults when member balances are empty.
 update public.room_members rm
 set
   individual_available_balance = coalesce(
     rm.individual_available_balance,
-    s.available_balance,
     r.default_balance,
     0
   ),
   individual_blocked_balance = coalesce(
     rm.individual_blocked_balance,
-    s.blocked_balance,
     0
   ),
   individual_total_balance = coalesce(
     rm.individual_total_balance,
-    s.total_balance,
-    coalesce(s.available_balance, r.default_balance, 0) + coalesce(s.blocked_balance, 0)
+    coalesce(rm.individual_available_balance, r.default_balance, 0) + coalesce(rm.individual_blocked_balance, 0)
   ),
   individual_currency = coalesce(
     nullif(rm.individual_currency, ''),
-    s.currency,
     r.default_currency,
     'USD'
   ),
@@ -1938,13 +1838,13 @@ set
   individual_unrealized_pnl = coalesce(rm.individual_unrealized_pnl, 0),
   individual_equity = coalesce(
     rm.individual_equity,
-    coalesce(s.total_balance, coalesce(s.available_balance, r.default_balance, 0) + coalesce(s.blocked_balance, 0))
+    coalesce(
+      rm.individual_total_balance,
+      coalesce(rm.individual_available_balance, r.default_balance, 0) + coalesce(rm.individual_blocked_balance, 0)
+    )
   )
 from public.rooms r
-left join public.student_sim_accounts s
-  on s.room_id = r.id
 where rm.room_id = r.id
-  and s.user_id = rm.user_id
   and rm.role_in_room = 'student';
 
 -- ---------------------------------------------------------------------------

@@ -65,48 +65,44 @@ export async function POST(request: Request) {
     );
   }
 
-  if (replaceExisting) {
-    const { error: deleteError } = await supabaseAdmin
-      .from("student_sim_accounts")
-      .delete()
-      .eq("room_id", roomId)
-      .eq("owner_type", "group");
-
-    if (deleteError) {
-      return NextResponse.json({ ok: false, error: deleteError.message }, { status: 500, headers: roomsCorsHeaders });
-    }
-  }
-
   const defaultBalance = Number(room.default_balance ?? 0);
   const currency = String(room.default_currency || "USD");
+  const baseUpdatePayload = {
+    group_available_balance: defaultBalance,
+    group_blocked_balance: 0,
+    group_total_balance: defaultBalance,
+    group_currency: currency,
+    group_realized_pnl: 0,
+    group_unrealized_pnl: 0,
+    group_equity: defaultBalance,
+  };
 
-  const accountsPayload = groups.map((group) => ({
-    room_id: roomId,
-    owner_type: "group",
-    owner_group_id: group.id,
-    user_id: null,
-    available_balance: defaultBalance,
-    blocked_balance: 0,
-    total_balance: defaultBalance,
-    currency,
-    state: "active",
-  }));
+  let updateQuery = supabaseAdmin
+    .from("room_group_members")
+    .update(baseUpdatePayload)
+    .eq("room_id", roomId)
+    .in("group_id", groups.map((group) => group.id))
+    .eq("state", "active");
 
-  const { data: accounts, error: upsertError } = await supabaseAdmin
-    .from("student_sim_accounts")
-    .upsert(accountsPayload, { onConflict: "room_id,owner_group_id" })
-    .select("*");
-
-  if (upsertError) {
-    return NextResponse.json({ ok: false, error: upsertError.message }, { status: 500, headers: roomsCorsHeaders });
+  if (!replaceExisting) {
+    updateQuery = updateQuery.lte("group_total_balance", 0);
   }
+
+  const { data: memberships, error: updateError } = await updateQuery.select("id, room_id, group_id, user_id");
+
+  if (updateError) {
+    return NextResponse.json({ ok: false, error: updateError.message }, { status: 500, headers: roomsCorsHeaders });
+  }
+
+  const provisionedGroupIds = [...new Set((memberships || []).map((membership) => membership.group_id))];
 
   return NextResponse.json(
     {
       ok: true,
       roomId,
-      provisionedCount: accounts?.length || 0,
-      accounts: accounts || [],
+      provisionedCount: memberships?.length || 0,
+      provisionedGroups: provisionedGroupIds.length,
+      memberships: memberships || [],
     },
     { headers: roomsCorsHeaders }
   );

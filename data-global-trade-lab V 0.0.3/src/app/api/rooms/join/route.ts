@@ -175,44 +175,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: memberError.message }, { status: 500, headers: corsHeaders });
   }
 
-  const { data: existingAccount, error: existingAccountError } = await supabaseAdmin
-    .from("student_sim_accounts")
-    .select("id")
-    .eq("room_id", room.id)
-    .eq("user_id", auth.user.id)
-    .maybeSingle();
-
-  if (existingAccountError) {
-    return NextResponse.json(
-      { ok: false, error: existingAccountError.message },
-      { status: 500, headers: corsHeaders }
-    );
-  }
-
-  const accountMutation = existingAccount
-    ? supabaseAdmin
-        .from("student_sim_accounts")
-        .update({
-          state: "active",
-        })
-        .eq("room_id", room.id)
-        .eq("user_id", auth.user.id)
-    : supabaseAdmin.from("student_sim_accounts").insert({
-        room_id: room.id,
-        user_id: auth.user.id,
-        available_balance: roomDefaultBalance,
-        blocked_balance: 0,
-        total_balance: roomDefaultBalance,
-        currency: roomDefaultCurrency,
-        state: "active",
-      });
-
-  const { error: accountError } = await accountMutation;
-
-  if (accountError) {
-    return NextResponse.json({ ok: false, error: accountError.message }, { status: 500, headers: corsHeaders });
-  }
-
   return NextResponse.json(
     {
       ok: true,

@@ -125,7 +125,7 @@ export async function DELETE(request: Request) {
     }
   }
 
-  const roomScopedTables = ["balance_adjustments", "student_sim_accounts", "positions", "transactions", "room_members"];
+  const roomScopedTables = ["balance_adjustments", "positions", "transactions", "room_members"];
 
   for (const table of roomScopedTables) {
     const tableDeleteError = await deleteByRoomId(table, roomId);
