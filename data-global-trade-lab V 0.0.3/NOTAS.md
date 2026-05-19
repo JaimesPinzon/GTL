@@ -177,3 +177,10 @@
 * Agregacion: Se incorporo clasificacion explicita de errores transitorios de token OAuth (`issued in the future`, `clock skew`, `not yet valid`) para evitar rechazos prematuros con `401`.
 * Cambio: Se ajusto `getOrCreateUserFromSupabaseAccessToken` para soportar usuarios OAuth sin email utilizable en el primer ciclo, preservando alta y sincronizacion de perfil.
 * Correccion: Se valido compilacion del backend con `npm run build` despues de los ajustes de autenticacion OAuth.
+
+20261805
+
+* Agregacion: Se incorporo el endpoint autenticado `POST /api/rooms/leave` en `src/app/api/rooms/leave/route.ts` con soporte `OPTIONS` y headers CORS.
+* Cambio: Se centralizo en backend la salida de sala para actualizar `room_members` y `room_group_members` a estado `removed` usando `supabaseAdmin`.
+* Correccion: Se agrego validacion para impedir que el propietario de la sala use el flujo de salida de estudiante en su propia sala.
+* Correccion: Se valido compilacion del backend con `npm run build` incluyendo la nueva ruta `/api/rooms/leave`.

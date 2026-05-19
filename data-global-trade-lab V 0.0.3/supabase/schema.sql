@@ -1972,6 +1972,13 @@ before insert on public.room_members
 for each row
 execute function public.seed_room_member_balance_defaults();
 
+-- Since April 2026, tables in public may need explicit GRANTs to be reachable
+-- via Supabase Data API / supabase-js. Keep these explicit for balance tables.
+grant select, insert, update, delete on table public.room_members to authenticated;
+grant select, insert, update, delete on table public.room_group_members to authenticated;
+grant select, insert, update, delete on table public.room_members to service_role;
+grant select, insert, update, delete on table public.room_group_members to service_role;
+
 commit;
 
 -- ---------------------------------------------------------------------------
