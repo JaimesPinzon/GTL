@@ -50,6 +50,8 @@ drop policy if exists "activity_submissions_insert_self" on public.activity_subm
 drop policy if exists "activity_submissions_update_accessible" on public.activity_submissions;
 drop policy if exists "activity_grades_select_accessible" on public.activity_grades;
 drop policy if exists "activity_grades_insert_teacher" on public.activity_grades;
+drop policy if exists "last_candle_market_select_anon" on public.last_candle_market;
+drop policy if exists "last_candle_market_select_authenticated" on public.last_candle_market;
 
 alter table public.profiles
     drop column if exists class_name;
@@ -118,6 +120,35 @@ create table if not exists public.quote_history (
 
 create index if not exists quote_history_requested_symbol_idx
     on public.quote_history (requested_symbol, fetched_at desc);
+
+create table if not exists public.last_candle_market (
+    symbol text not null,
+    source text not null default 'twelvedata',
+    provider_symbol text not null,
+    asset_name text,
+    exchange text,
+    currency text,
+    price numeric(18, 8) not null check (price > 0),
+    open_price numeric(18, 8),
+    high_price numeric(18, 8),
+    low_price numeric(18, 8),
+    close_price numeric(18, 8),
+    volume numeric(24, 8),
+    percent_change numeric(14, 4),
+    is_market_open boolean,
+    candle_time timestamptz not null,
+    fetched_at timestamptz not null default timezone('utc', now()),
+    status text not null default 'ok' check (status in ('ok', 'stale', 'error')),
+    error_message text,
+    created_at timestamptz not null default timezone('utc', now()),
+    updated_at timestamptz not null default timezone('utc', now()),
+    constraint last_candle_market_symbol_not_empty check (length(trim(symbol)) > 0),
+    constraint last_candle_market_source_not_empty check (length(trim(source)) > 0),
+    primary key (symbol, source)
+);
+
+create index if not exists last_candle_market_fetched_at_idx
+    on public.last_candle_market (fetched_at desc);
 
 create table if not exists public.market_candles (
     id bigint generated always as identity primary key,
@@ -775,6 +806,12 @@ before update on public.chart_drawings
 for each row
 execute function public.handle_updated_at();
 
+drop trigger if exists last_candle_market_set_updated_at on public.last_candle_market;
+create trigger last_candle_market_set_updated_at
+before update on public.last_candle_market
+for each row
+execute function public.handle_updated_at();
+
 drop trigger if exists auth_refresh_sessions_set_updated_at on public.auth_refresh_sessions;
 create trigger auth_refresh_sessions_set_updated_at
 before update on public.auth_refresh_sessions
@@ -855,6 +892,7 @@ alter table public.activity_submissions enable row level security;
 alter table public.activity_grades enable row level security;
 alter table public.chart_drawings enable row level security;
 alter table public.auth_refresh_sessions enable row level security;
+alter table public.last_candle_market enable row level security;
 
 revoke all on table public.auth_refresh_sessions from anon;
 revoke all on table public.auth_refresh_sessions from authenticated;
@@ -874,6 +912,20 @@ for all
 to authenticated
 using (false)
 with check (false);
+
+drop policy if exists "last_candle_market_select_anon" on public.last_candle_market;
+create policy "last_candle_market_select_anon"
+on public.last_candle_market
+for select
+to anon
+using (true);
+
+drop policy if exists "last_candle_market_select_authenticated" on public.last_candle_market;
+create policy "last_candle_market_select_authenticated"
+on public.last_candle_market
+for select
+to authenticated
+using (true);
 
 drop policy if exists "profiles_select_accessible" on public.profiles;
 create policy "profiles_select_accessible"
@@ -1978,6 +2030,9 @@ grant select, insert, update, delete on table public.room_members to authenticat
 grant select, insert, update, delete on table public.room_group_members to authenticated;
 grant select, insert, update, delete on table public.room_members to service_role;
 grant select, insert, update, delete on table public.room_group_members to service_role;
+grant select on table public.last_candle_market to anon;
+grant select on table public.last_candle_market to authenticated;
+grant select, insert, update, delete on table public.last_candle_market to service_role;
 
 commit;
 

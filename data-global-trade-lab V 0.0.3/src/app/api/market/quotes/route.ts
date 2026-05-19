@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { getCachedOrFetchBatchQuotes } from "@/app/utils/market/quotes-cache";
+import {
+    getLastCandleMarketBySymbols,
+    type LastCandleMarketSnapshot,
+    upsertLastCandleMarketBatch,
+} from "@/app/utils/market/last-candle-market";
+import {
+    getCachedOrFetchBatchQuotes,
+    type MarketQuotePayload,
+} from "@/app/utils/market/quotes-cache";
 import { saveQuoteHistoryBatch } from "@/app/utils/twelvedata/history";
 
 const corsHeaders = {
@@ -26,10 +34,42 @@ export async function GET(request: Request) {
         .map((symbol) => symbol.trim())
         .filter(Boolean);
 
+    const isProviderError = (data: MarketQuotePayload) =>
+        data.status === "error" || Boolean(data.code) || Boolean(data.message);
+
+    const isValidLiveQuote = (data: MarketQuotePayload) => {
+        if (isProviderError(data)) {
+            return false;
+        }
+
+        const closePrice = Number.parseFloat(String(data.close ?? ""));
+        return Number.isFinite(closePrice) && closePrice > 0;
+    };
+
+    const toSnapshotQuotePayload = (
+        snapshot: LastCandleMarketSnapshot
+    ): MarketQuotePayload => ({
+        symbol: snapshot.providerSymbol || snapshot.symbol,
+        name: snapshot.assetName ?? undefined,
+        exchange: snapshot.exchange ?? undefined,
+        currency: snapshot.currency ?? undefined,
+        close: String(snapshot.price),
+        is_market_open:
+            typeof snapshot.isMarketOpen === "boolean"
+                ? snapshot.isMarketOpen
+                : undefined,
+        percent_change:
+            Number.isFinite(snapshot.percentChange ?? NaN)
+                ? String(snapshot.percentChange)
+                : undefined,
+        timestamp: snapshot.candleTime,
+    });
+
     try {
         const quoteResponses = await getCachedOrFetchBatchQuotes(symbols);
-        const successfulQuotes = quoteResponses
-            .filter(({ data }) => !(data.status === "error" || data.code || data.message))
+        const latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
+        const successfulLiveQuotes = quoteResponses
+            .filter(({ data }) => isValidLiveQuote(data))
             .map(({ requestedSymbol, data }) => ({
                 requestedSymbol,
                 ...data,
@@ -37,25 +77,46 @@ export async function GET(request: Request) {
 
         let persisted = true;
         try {
-            await saveQuoteHistoryBatch(successfulQuotes);
+            await Promise.all([
+                saveQuoteHistoryBatch(successfulLiveQuotes),
+                upsertLastCandleMarketBatch(successfulLiveQuotes),
+            ]);
         } catch {
             persisted = false;
         }
 
         const results = quoteResponses.map(({ requestedSymbol, data }) => {
-            if (data.status === "error" || data.code || data.message) {
+            if (isValidLiveQuote(data)) {
                 return {
                     requestedSymbol,
-                    ok: false,
-                    error: data.message ?? `Missing TwelveData payload for ${requestedSymbol}`,
+                    ok: true,
+                    persisted,
+                    source: "twelvedata_live",
+                    stale: false,
+                    data,
+                };
+            }
+
+            const snapshot =
+                latestSnapshotsBySymbol.get(requestedSymbol.toUpperCase()) || null;
+
+            if (snapshot && Number.isFinite(snapshot.price) && snapshot.price > 0) {
+                return {
+                    requestedSymbol,
+                    ok: true,
+                    persisted: false,
+                    source: "supabase_snapshot",
+                    stale: snapshot.isStale,
+                    data: toSnapshotQuotePayload(snapshot),
                 };
             }
 
             return {
                 requestedSymbol,
-                ok: true,
-                persisted,
-                data,
+                ok: false,
+                error:
+                    data.message ??
+                    `Missing TwelveData payload for ${requestedSymbol}`,
             };
         });
 

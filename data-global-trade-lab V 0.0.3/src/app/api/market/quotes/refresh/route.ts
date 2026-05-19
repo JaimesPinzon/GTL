@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { upsertLastCandleMarketBatch } from "@/app/utils/market/last-candle-market";
 import { parseTrackedSymbols } from "@/app/utils/market/symbols";
 import { saveQuoteHistoryBatch } from "@/app/utils/twelvedata/history";
 import { getTwelveDataQuotes } from "@/app/utils/twelvedata/server";
@@ -58,7 +59,10 @@ export async function GET(request: Request) {
 
         let persisted = true;
         try {
-            await saveQuoteHistoryBatch(successfulQuotes);
+            await Promise.all([
+                saveQuoteHistoryBatch(successfulQuotes),
+                upsertLastCandleMarketBatch(successfulQuotes),
+            ]);
         } catch {
             persisted = false;
         }
