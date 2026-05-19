@@ -3,11 +3,51 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
 import { getAuthenticatedUser } from "@/modules/auth";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+const defaultAllowedOrigins = [
+  "https://gtl1-f32d5.web.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
+
+const normalizeOrigin = (value: string) => String(value || "").trim().replace(/\/$/, "");
+
+const readAllowedOrigins = () => {
+  const rawOrigins = String(process.env.CORS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((entry) => normalizeOrigin(entry))
+    .filter(Boolean);
+
+  const allowAllOrigins = rawOrigins.includes("*");
+  const explicitAllowedOrigins = rawOrigins.filter((origin) => origin !== "*");
+
+  const allowedOrigins = explicitAllowedOrigins.length > 0
+    ? explicitAllowedOrigins
+    : defaultAllowedOrigins;
+
+  return {
+    allowAllOrigins,
+    allowedOrigins,
+  };
 };
+
+const resolveCorsOrigin = (request: Request) => {
+  const requestOrigin = normalizeOrigin(String(request.headers.get("origin") || ""));
+  const { allowAllOrigins, allowedOrigins } = readAllowedOrigins();
+
+  if (requestOrigin && (allowAllOrigins || allowedOrigins.includes(requestOrigin))) {
+    return requestOrigin;
+  }
+
+  return allowedOrigins[0] || defaultAllowedOrigins[0];
+};
+
+const buildCorsHeaders = (request: Request) => ({
+  "Access-Control-Allow-Origin": resolveCorsOrigin(request),
+  "Access-Control-Allow-Methods": "GET,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-CSRF-Token",
+  "Access-Control-Allow-Credentials": "true",
+  Vary: "Origin",
+});
 
 type RoomGroupStateRow = {
   state?: string | null;
@@ -51,6 +91,7 @@ function getAccessToken(request: Request) {
 
 async function requireUser(request: Request) {
   const accessToken = getAccessToken(request);
+  const corsHeaders = buildCorsHeaders(request);
 
   if (!accessToken) {
     return { error: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders }) };
@@ -66,7 +107,8 @@ async function requireUser(request: Request) {
 
 export const runtime = "nodejs";
 
-export async function OPTIONS() {
+export async function OPTIONS(request: Request) {
+  const corsHeaders = buildCorsHeaders(request);
   return new NextResponse(null, {
     status: 204,
     headers: corsHeaders,
@@ -74,6 +116,7 @@ export async function OPTIONS() {
 }
 
 export async function GET(request: Request) {
+  const corsHeaders = buildCorsHeaders(request);
   const auth = await requireUser(request);
   if (auth.error) {
     return auth.error;
