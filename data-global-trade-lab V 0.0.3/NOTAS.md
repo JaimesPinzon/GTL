@@ -170,3 +170,10 @@
 * Cambio: Se ajustaron consultas `select` y operaciones `upsert` de `profiles` para trabajar solo con datos de identidad (`user_id`, `email`, `name`, `role`, `created_at`, `updated_at`).
 * Correccion: Se normalizo el mapeo de usuario autenticado para mantener `balance` e `initialBalance` como valores de compatibilidad sin depender de columnas eliminadas en `profiles`.
 * Correccion: Se valido compilacion del backend con `npm run build` despues de los ajustes de autenticacion.
+
+20261405
+
+* Correccion: Se amplio la tolerancia del backend al desfase de reloj en login OAuth, agregando reintentos controlados al resolver usuario desde `supabaseAdmin.auth.getUser(accessToken)`.
+* Agregacion: Se incorporo clasificacion explicita de errores transitorios de token OAuth (`issued in the future`, `clock skew`, `not yet valid`) para evitar rechazos prematuros con `401`.
+* Cambio: Se ajusto `getOrCreateUserFromSupabaseAccessToken` para soportar usuarios OAuth sin email utilizable en el primer ciclo, preservando alta y sincronizacion de perfil.
+* Correccion: Se valido compilacion del backend con `npm run build` despues de los ajustes de autenticacion OAuth.
