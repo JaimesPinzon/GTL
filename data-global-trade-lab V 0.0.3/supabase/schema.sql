@@ -854,7 +854,26 @@ alter table public.activity_posts enable row level security;
 alter table public.activity_submissions enable row level security;
 alter table public.activity_grades enable row level security;
 alter table public.chart_drawings enable row level security;
-alter table public.auth_refresh_sessions disable row level security;
+alter table public.auth_refresh_sessions enable row level security;
+
+revoke all on table public.auth_refresh_sessions from anon;
+revoke all on table public.auth_refresh_sessions from authenticated;
+
+drop policy if exists "auth_refresh_sessions_block_anon" on public.auth_refresh_sessions;
+create policy "auth_refresh_sessions_block_anon"
+on public.auth_refresh_sessions
+for all
+to anon
+using (false)
+with check (false);
+
+drop policy if exists "auth_refresh_sessions_block_authenticated" on public.auth_refresh_sessions;
+create policy "auth_refresh_sessions_block_authenticated"
+on public.auth_refresh_sessions
+for all
+to authenticated
+using (false)
+with check (false);
 
 drop policy if exists "profiles_select_accessible" on public.profiles;
 create policy "profiles_select_accessible"

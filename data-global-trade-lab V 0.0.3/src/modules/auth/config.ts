@@ -11,6 +11,9 @@ const defaultLocalDevOrigins = [
     "http://127.0.0.1:4173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    // Firebase Hosting default domains used by this project.
+    "https://gtl1-f32d5.web.app",
+    "https://gtl1-f32d5.firebaseapp.com",
 ];
 
 const cookieSameSite = serverEnv.AUTH_COOKIE_SAME_SITE.toLowerCase() as "lax" | "strict" | "none";

@@ -40,7 +40,26 @@ before update on public.auth_refresh_sessions
 for each row
 execute function public.set_auth_refresh_sessions_updated_at();
 
-alter table public.auth_refresh_sessions disable row level security;
+alter table public.auth_refresh_sessions enable row level security;
+
+revoke all on table public.auth_refresh_sessions from anon;
+revoke all on table public.auth_refresh_sessions from authenticated;
+
+drop policy if exists "auth_refresh_sessions_block_anon" on public.auth_refresh_sessions;
+create policy "auth_refresh_sessions_block_anon"
+on public.auth_refresh_sessions
+for all
+to anon
+using (false)
+with check (false);
+
+drop policy if exists "auth_refresh_sessions_block_authenticated" on public.auth_refresh_sessions;
+create policy "auth_refresh_sessions_block_authenticated"
+on public.auth_refresh_sessions
+for all
+to authenticated
+using (false)
+with check (false);
 
 comment on table public.auth_refresh_sessions is
 'Refresh sessions persistidas del auth propio del backend. La definicion base tambien vive en supabase/schema.sql.';

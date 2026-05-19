@@ -23,6 +23,13 @@ type ProfileRow = {
 
 const usesSupabaseUsers = serverEnv.AUTH_USERS_STORE === "supabase";
 const DEFAULT_COMPAT_BALANCE = 100000;
+const SUPABASE_ACCESS_TOKEN_RETRY_ATTEMPTS = 20;
+const SUPABASE_ACCESS_TOKEN_RETRY_DELAY_MS = 250;
+
+const wait = (ms: number) =>
+    new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+    });
 
 const createPasswordAuthClient = () =>
     createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
@@ -67,9 +74,41 @@ const isNotNullBalanceConstraintError = (error: unknown) => {
     return code === "23502" || status === 400 || combined.includes("not-null constraint");
 };
 
+const isRetryableSupabaseAccessTokenError = (error: unknown) => {
+    const message = String((error as { message?: string })?.message || "").toLowerCase();
+    const details = String((error as { details?: string })?.details || "").toLowerCase();
+    const combined = `${message} ${details}`;
+
+    return (
+        combined.includes("issued in the future") ||
+        combined.includes("clock for skew") ||
+        combined.includes("not yet valid") ||
+        (combined.includes("iat") && combined.includes("future"))
+    );
+};
+
+const getSupabaseUserFromAccessToken = async (accessToken: string) => {
+    for (let attempt = 0; attempt < SUPABASE_ACCESS_TOKEN_RETRY_ATTEMPTS; attempt += 1) {
+        const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+        if (!authError && authData.user) {
+            return authData.user;
+        }
+
+        if (!authError || !isRetryableSupabaseAccessTokenError(authError)) {
+            return null;
+        }
+
+        if (attempt < SUPABASE_ACCESS_TOKEN_RETRY_ATTEMPTS - 1) {
+            await wait(SUPABASE_ACCESS_TOKEN_RETRY_DELAY_MS);
+        }
+    }
+
+    return null;
+};
+
 const upsertProfileWithSchemaCompatibility = async (input: {
     userId: string;
-    email: string;
+    email: string | null;
     name: string;
     role: string;
     balance?: number;
@@ -193,25 +232,23 @@ export const getOrCreateUserFromSupabaseAccessToken = async (accessToken: string
         return null;
     }
 
-    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authError || !authData.user) {
+    const supabaseUser = await getSupabaseUserFromAccessToken(accessToken);
+    if (!supabaseUser) {
         return null;
     }
-
-    const supabaseUser = authData.user;
     const existingUser = await getUserById(supabaseUser.id);
     if (existingUser) {
         return existingUser;
     }
 
-    const email = String(supabaseUser.email || "").trim().toLowerCase();
-    if (!email) {
-        return null;
-    }
+    const normalizedEmail = String(supabaseUser.email || "")
+        .trim()
+        .toLowerCase();
+    const email = normalizedEmail || null;
 
     const metadata = (supabaseUser.user_metadata || {}) as Record<string, unknown>;
     const nameFromMetadata = String(metadata.name || metadata.full_name || "").trim();
-    const defaultName = email.split("@")[0] || "User";
+    const defaultName = (normalizedEmail ? normalizedEmail.split("@")[0] : "") || "User";
     const role = String(metadata.role || "").trim().toLowerCase() === "teacher" ? "teacher" : "student";
     await upsertProfileWithSchemaCompatibility({
         userId: supabaseUser.id,
