@@ -50,8 +50,6 @@ drop policy if exists "activity_submissions_insert_self" on public.activity_subm
 drop policy if exists "activity_submissions_update_accessible" on public.activity_submissions;
 drop policy if exists "activity_grades_select_accessible" on public.activity_grades;
 drop policy if exists "activity_grades_insert_teacher" on public.activity_grades;
-drop policy if exists "last_candle_market_select_anon" on public.last_candle_market;
-drop policy if exists "last_candle_market_select_authenticated" on public.last_candle_market;
 
 alter table public.profiles
     drop column if exists class_name;
@@ -892,7 +890,6 @@ alter table public.activity_submissions enable row level security;
 alter table public.activity_grades enable row level security;
 alter table public.chart_drawings enable row level security;
 alter table public.auth_refresh_sessions enable row level security;
-alter table public.last_candle_market enable row level security;
 
 revoke all on table public.auth_refresh_sessions from anon;
 revoke all on table public.auth_refresh_sessions from authenticated;
@@ -913,19 +910,17 @@ to authenticated
 using (false)
 with check (false);
 
-drop policy if exists "last_candle_market_select_anon" on public.last_candle_market;
-create policy "last_candle_market_select_anon"
-on public.last_candle_market
-for select
-to anon
-using (true);
-
-drop policy if exists "last_candle_market_select_authenticated" on public.last_candle_market;
-create policy "last_candle_market_select_authenticated"
-on public.last_candle_market
-for select
-to authenticated
-using (true);
+do $$
+begin
+    if to_regclass('public.last_candle_market') is not null then
+        execute 'alter table public.last_candle_market enable row level security';
+        execute 'drop policy if exists "last_candle_market_select_anon" on public.last_candle_market';
+        execute 'create policy "last_candle_market_select_anon" on public.last_candle_market for select to anon using (true)';
+        execute 'drop policy if exists "last_candle_market_select_authenticated" on public.last_candle_market';
+        execute 'create policy "last_candle_market_select_authenticated" on public.last_candle_market for select to authenticated using (true)';
+    end if;
+end;
+$$;
 
 drop policy if exists "profiles_select_accessible" on public.profiles;
 create policy "profiles_select_accessible"
@@ -2030,9 +2025,15 @@ grant select, insert, update, delete on table public.room_members to authenticat
 grant select, insert, update, delete on table public.room_group_members to authenticated;
 grant select, insert, update, delete on table public.room_members to service_role;
 grant select, insert, update, delete on table public.room_group_members to service_role;
-grant select on table public.last_candle_market to anon;
-grant select on table public.last_candle_market to authenticated;
-grant select, insert, update, delete on table public.last_candle_market to service_role;
+do $$
+begin
+    if to_regclass('public.last_candle_market') is not null then
+        execute 'grant select on table public.last_candle_market to anon';
+        execute 'grant select on table public.last_candle_market to authenticated';
+        execute 'grant select, insert, update, delete on table public.last_candle_market to service_role';
+    end if;
+end;
+$$;
 
 commit;
 

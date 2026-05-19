@@ -296,3 +296,46 @@ export async function getLastCandleMarketBySymbols(symbols: string[]) {
 
     return snapshots;
 }
+
+export async function listLastCandleMarketSnapshots({
+    limit = 300,
+    source = DEFAULT_SOURCE,
+    symbols,
+}: {
+    limit?: number;
+    source?: string;
+    symbols?: string[];
+} = {}) {
+    const normalizedLimit = Number.isFinite(limit)
+        ? Math.min(Math.max(Math.trunc(limit), 1), 1000)
+        : 300;
+    const normalizedSource = String(source || DEFAULT_SOURCE).trim() || DEFAULT_SOURCE;
+    const normalizedSymbols = Array.isArray(symbols)
+        ? [...new Set(
+            symbols
+                .map((symbol) => normalizeSymbol(symbol))
+                .filter(Boolean)
+        )]
+        : [];
+
+    let query = supabaseAdmin
+        .from("last_candle_market")
+        .select(
+            "symbol, source, provider_symbol, asset_name, exchange, currency, price, open_price, high_price, low_price, close_price, volume, percent_change, is_market_open, candle_time, fetched_at, status, error_message"
+        )
+        .eq("source", normalizedSource)
+        .order("fetched_at", { ascending: false })
+        .limit(normalizedLimit);
+
+    if (normalizedSymbols.length > 0) {
+        query = query.in("symbol", normalizedSymbols);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        throw error;
+    }
+
+    return (data || []).map((row) => mapRowToSnapshot(row as LastCandleMarketRow));
+}
