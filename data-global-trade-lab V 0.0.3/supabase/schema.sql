@@ -148,6 +148,85 @@ create table if not exists public.last_candle_market (
 create index if not exists last_candle_market_fetched_at_idx
     on public.last_candle_market (fetched_at desc);
 
+create table if not exists public.market_fetch_control (
+    id text primary key,
+    last_fetched_at timestamptz not null default to_timestamp(0),
+    locked_until timestamptz,
+    updated_at timestamptz not null default timezone('utc', now())
+);
+
+insert into public.market_fetch_control (id, last_fetched_at)
+values ('twelvedata_quotes_batch', to_timestamp(0))
+on conflict (id) do nothing;
+
+create or replace function public.acquire_market_quotes_refresh_lock(
+    p_control_id text default 'twelvedata_quotes_batch',
+    p_min_interval_ms integer default 108000,
+    p_lock_window_ms integer default 30000
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    now_ts timestamptz := timezone('utc', now());
+    min_interval interval := make_interval(secs => greatest(p_min_interval_ms, 0)::double precision / 1000.0);
+    lock_window interval := make_interval(secs => greatest(p_lock_window_ms, 1)::double precision / 1000.0);
+    updated_rows integer := 0;
+begin
+    insert into public.market_fetch_control (id, last_fetched_at)
+    values (p_control_id, to_timestamp(0))
+    on conflict (id) do nothing;
+
+    update public.market_fetch_control
+    set
+        locked_until = now_ts + lock_window,
+        updated_at = now_ts
+    where id = p_control_id
+      and (locked_until is null or locked_until <= now_ts)
+      and last_fetched_at <= now_ts - min_interval;
+
+    get diagnostics updated_rows = row_count;
+    return updated_rows = 1;
+end;
+$$;
+
+create or replace function public.mark_market_quotes_refresh_complete(
+    p_control_id text default 'twelvedata_quotes_batch'
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    update public.market_fetch_control
+    set
+        last_fetched_at = timezone('utc', now()),
+        locked_until = null,
+        updated_at = timezone('utc', now())
+    where id = p_control_id;
+end;
+$$;
+
+create or replace function public.release_market_quotes_refresh_lock(
+    p_control_id text default 'twelvedata_quotes_batch'
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    update public.market_fetch_control
+    set
+        locked_until = null,
+        updated_at = timezone('utc', now())
+    where id = p_control_id;
+end;
+$$;
+
 create table if not exists public.market_candles (
     id bigint generated always as identity primary key,
     requested_symbol text not null,
@@ -974,6 +1053,18 @@ begin
         execute 'create policy "last_candle_market_select_anon" on public.last_candle_market for select to anon using (true)';
         execute 'drop policy if exists "last_candle_market_select_authenticated" on public.last_candle_market';
         execute 'create policy "last_candle_market_select_authenticated" on public.last_candle_market for select to authenticated using (true)';
+    end if;
+end;
+$$;
+
+do $$
+begin
+    if to_regclass('public.market_fetch_control') is not null then
+        execute 'alter table public.market_fetch_control enable row level security';
+        execute 'drop policy if exists "market_fetch_control_block_anon" on public.market_fetch_control';
+        execute 'create policy "market_fetch_control_block_anon" on public.market_fetch_control for all to anon using (false) with check (false)';
+        execute 'drop policy if exists "market_fetch_control_block_authenticated" on public.market_fetch_control';
+        execute 'create policy "market_fetch_control_block_authenticated" on public.market_fetch_control for all to authenticated using (false) with check (false)';
     end if;
 end;
 $$;
@@ -2087,6 +2178,31 @@ begin
         execute 'grant select on table public.last_candle_market to anon';
         execute 'grant select on table public.last_candle_market to authenticated';
         execute 'grant select, insert, update, delete on table public.last_candle_market to service_role';
+    end if;
+
+    if to_regclass('public.market_fetch_control') is not null then
+        execute 'revoke all on table public.market_fetch_control from anon';
+        execute 'revoke all on table public.market_fetch_control from authenticated';
+        execute 'grant select, insert, update on table public.market_fetch_control to service_role';
+    end if;
+end;
+$$;
+
+do $$
+begin
+    if to_regprocedure('public.acquire_market_quotes_refresh_lock(text,integer,integer)') is not null then
+        execute 'revoke all on function public.acquire_market_quotes_refresh_lock(text,integer,integer) from public';
+        execute 'grant execute on function public.acquire_market_quotes_refresh_lock(text,integer,integer) to service_role';
+    end if;
+
+    if to_regprocedure('public.mark_market_quotes_refresh_complete(text)') is not null then
+        execute 'revoke all on function public.mark_market_quotes_refresh_complete(text) from public';
+        execute 'grant execute on function public.mark_market_quotes_refresh_complete(text) to service_role';
+    end if;
+
+    if to_regprocedure('public.release_market_quotes_refresh_lock(text)') is not null then
+        execute 'revoke all on function public.release_market_quotes_refresh_lock(text) from public';
+        execute 'grant execute on function public.release_market_quotes_refresh_lock(text) to service_role';
     end if;
 end;
 $$;

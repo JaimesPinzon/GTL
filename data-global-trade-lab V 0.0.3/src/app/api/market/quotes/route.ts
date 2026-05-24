@@ -3,13 +3,8 @@ import { NextResponse } from "next/server";
 import {
     getLastCandleMarketBySymbols,
     type LastCandleMarketSnapshot,
-    upsertLastCandleMarketBatch,
 } from "@/app/utils/market/last-candle-market";
-import {
-    getCachedOrFetchBatchQuotes,
-    type MarketQuotePayload,
-} from "@/app/utils/market/quotes-cache";
-import { saveQuoteHistoryBatch } from "@/app/utils/twelvedata/history";
+import { type MarketQuotePayload } from "@/app/utils/market/quotes-cache";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -34,18 +29,6 @@ export async function GET(request: Request) {
         .map((symbol) => symbol.trim())
         .filter(Boolean);
 
-    const isProviderError = (data: MarketQuotePayload) =>
-        data.status === "error" || Boolean(data.code) || Boolean(data.message);
-
-    const isValidLiveQuote = (data: MarketQuotePayload) => {
-        if (isProviderError(data)) {
-            return false;
-        }
-
-        const closePrice = Number.parseFloat(String(data.close ?? ""));
-        return Number.isFinite(closePrice) && closePrice > 0;
-    };
-
     const toSnapshotQuotePayload = (
         snapshot: LastCandleMarketSnapshot
     ): MarketQuotePayload => ({
@@ -66,37 +49,8 @@ export async function GET(request: Request) {
     });
 
     try {
-        const quoteResponses = await getCachedOrFetchBatchQuotes(symbols);
         const latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
-        const successfulLiveQuotes = quoteResponses
-            .filter(({ data }) => isValidLiveQuote(data))
-            .map(({ requestedSymbol, data }) => ({
-                requestedSymbol,
-                ...data,
-            }));
-
-        let persisted = true;
-        try {
-            await Promise.all([
-                saveQuoteHistoryBatch(successfulLiveQuotes),
-                upsertLastCandleMarketBatch(successfulLiveQuotes),
-            ]);
-        } catch {
-            persisted = false;
-        }
-
-        const results = quoteResponses.map(({ requestedSymbol, data }) => {
-            if (isValidLiveQuote(data)) {
-                return {
-                    requestedSymbol,
-                    ok: true,
-                    persisted,
-                    source: "twelvedata_live",
-                    stale: false,
-                    data,
-                };
-            }
-
+        const results = symbols.map((requestedSymbol) => {
             const snapshot =
                 latestSnapshotsBySymbol.get(requestedSymbol.toUpperCase()) || null;
 
@@ -114,9 +68,8 @@ export async function GET(request: Request) {
             return {
                 requestedSymbol,
                 ok: false,
-                error:
-                    data.message ??
-                    `Missing TwelveData payload for ${requestedSymbol}`,
+                source: "supabase_snapshot",
+                error: `Missing snapshot payload for ${requestedSymbol}`,
             };
         });
 

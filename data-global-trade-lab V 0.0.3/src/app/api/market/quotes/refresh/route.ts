@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { upsertLastCandleMarketBatch } from "@/app/utils/market/last-candle-market";
+import {
+    acquireMarketQuotesRefreshLock,
+    markMarketQuotesRefreshComplete,
+    releaseMarketQuotesRefreshLock,
+} from "@/app/utils/market/refresh-control";
 import { parseTrackedSymbols } from "@/app/utils/market/symbols";
 import { saveQuoteHistoryBatch } from "@/app/utils/twelvedata/history";
 import { getTwelveDataQuotes } from "@/app/utils/twelvedata/server";
@@ -47,8 +52,33 @@ async function handleRefresh(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const symbols = parseTrackedSymbols(searchParams.get("symbols"));
+    const minIntervalMs = Number.parseInt(
+        String(process.env.MARKET_QUOTES_REFRESH_TTL_MS ?? "108000"),
+        10
+    );
 
     try {
+        const lockAcquired = await acquireMarketQuotesRefreshLock({
+            minIntervalMs:
+                Number.isFinite(minIntervalMs) && minIntervalMs > 0
+                    ? minIntervalMs
+                    : 108000,
+        });
+
+        if (!lockAcquired) {
+            return NextResponse.json(
+                {
+                    ok: true,
+                    skipped: true,
+                    reason: "refresh_window_locked_or_not_due",
+                    refreshedAt: new Date().toISOString(),
+                    symbols,
+                    results: [],
+                },
+                { headers: corsHeaders }
+            );
+        }
+
         const quoteResponses = await getTwelveDataQuotes(symbols);
         const successfulQuotes = quoteResponses
             .filter(({ data }) => !(data.status === "error" || data.code || data.message))
@@ -63,8 +93,10 @@ async function handleRefresh(request: Request) {
                 saveQuoteHistoryBatch(successfulQuotes),
                 upsertLastCandleMarketBatch(successfulQuotes),
             ]);
+            await markMarketQuotesRefreshComplete();
         } catch {
             persisted = false;
+            await releaseMarketQuotesRefreshLock();
         }
 
         const results = quoteResponses.map(({ requestedSymbol, data }) => {
@@ -94,6 +126,12 @@ async function handleRefresh(request: Request) {
             { headers: corsHeaders }
         );
     } catch (error) {
+        try {
+            await releaseMarketQuotesRefreshLock();
+        } catch {
+            // Ignore unlock errors here; original error is more relevant.
+        }
+
         return NextResponse.json(
             {
                 ok: false,
