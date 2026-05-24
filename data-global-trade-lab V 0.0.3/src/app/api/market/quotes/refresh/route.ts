@@ -87,16 +87,24 @@ async function handleRefresh(request: Request) {
                 ...data,
             }));
 
-        let persisted = true;
+        let persistedSnapshot = true;
+        let persistedHistory = true;
         try {
-            await Promise.all([
-                saveQuoteHistoryBatch(successfulQuotes),
-                upsertLastCandleMarketBatch(successfulQuotes),
-            ]);
+            await upsertLastCandleMarketBatch(successfulQuotes);
             await markMarketQuotesRefreshComplete();
         } catch {
-            persisted = false;
+            persistedSnapshot = false;
             await releaseMarketQuotesRefreshLock();
+        }
+
+        if (persistedSnapshot) {
+            try {
+                await saveQuoteHistoryBatch(successfulQuotes);
+            } catch {
+                persistedHistory = false;
+            }
+        } else {
+            persistedHistory = false;
         }
 
         const results = quoteResponses.map(({ requestedSymbol, data }) => {
@@ -111,7 +119,8 @@ async function handleRefresh(request: Request) {
             return {
                 requestedSymbol,
                 ok: true,
-                persisted,
+                persistedSnapshot,
+                persistedHistory,
                 data,
             };
         });
@@ -121,6 +130,9 @@ async function handleRefresh(request: Request) {
                 ok: true,
                 refreshedAt: new Date().toISOString(),
                 symbols,
+                persistedSnapshot,
+                persistedHistory,
+                successfulQuotesCount: successfulQuotes.length,
                 results,
             },
             { headers: corsHeaders }

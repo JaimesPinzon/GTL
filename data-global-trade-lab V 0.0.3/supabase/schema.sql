@@ -2210,7 +2210,7 @@ $$;
 commit;
 
 -- ---------------------------------------------------------------------------
--- Realtime publication for room balances
+-- Realtime publication for room balances and market snapshots
 -- ---------------------------------------------------------------------------
 do $$
 begin
@@ -2233,6 +2233,16 @@ begin
         and tablename = 'room_group_members'
     ) then
       execute 'alter publication supabase_realtime add table public.room_group_members';
+    end if;
+
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'last_candle_market'
+    ) then
+      execute 'alter publication supabase_realtime add table public.last_candle_market';
     end if;
   end if;
 end;
