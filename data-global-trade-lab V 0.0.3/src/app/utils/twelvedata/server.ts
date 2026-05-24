@@ -73,7 +73,7 @@ export async function getTwelveDataQuote(symbol: string) {
 
 export async function getTwelveDataQuotes(symbols: string[]) {
     const normalizedSymbols = symbols
-        .map((symbol) => symbol.trim())
+        .map((symbol) => symbol.trim().toUpperCase())
         .filter(Boolean);
 
     if (normalizedSymbols.length === 0) {
@@ -116,11 +116,44 @@ export async function getTwelveDataQuotes(symbols: string[]) {
         ];
     }
 
+    const globalError = payload as TwelveDataQuoteResponse;
+    if (globalError.status === "error" || globalError.code || globalError.message) {
+        return normalizedSymbols.map((symbol) => ({
+            requestedSymbol: symbol,
+            data: {
+                status: "error",
+                code: globalError.code,
+                message:
+                    globalError.message ??
+                    `TwelveData batch quote error for ${symbol}`,
+            },
+        }));
+    }
+
+    const batchPayload = payload as TwelveDataBatchQuoteResponse;
+    const normalizedPayloadEntries = Object.entries(batchPayload).map(
+        ([key, value]) => ({
+            key,
+            normalizedKey: String(key || "").trim().toUpperCase(),
+            value,
+        })
+    );
+
     return normalizedSymbols.map((symbol) => {
-        const data = (payload as TwelveDataBatchQuoteResponse)?.[symbol] ?? {
-            status: "error",
-            message: `Missing TwelveData payload for ${symbol}`,
-        };
+        const directMatch = batchPayload[symbol];
+        const normalizedMatch =
+            normalizedPayloadEntries.find(
+                (entry) =>
+                    entry.normalizedKey === symbol ||
+                    entry.normalizedKey.startsWith(`${symbol}:`)
+            )?.value;
+        const data =
+            directMatch ??
+            normalizedMatch ??
+            ({
+                status: "error",
+                message: `Missing TwelveData payload for ${symbol}`,
+            } satisfies TwelveDataQuoteResponse);
 
         return {
             requestedSymbol: symbol,

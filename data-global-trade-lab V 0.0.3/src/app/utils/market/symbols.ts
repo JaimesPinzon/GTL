@@ -12,7 +12,7 @@ export const trackedMarketSymbols = [
 export function parseTrackedSymbols(rawSymbols?: string | null) {
     const normalizedSymbols = rawSymbols
         ?.split(",")
-        .map((symbol) => symbol.trim())
+        .map((symbol) => symbol.trim().toUpperCase())
         .filter(Boolean);
 
     return normalizedSymbols?.length ? normalizedSymbols : [...trackedMarketSymbols];
