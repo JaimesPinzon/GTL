@@ -1,5 +1,6 @@
 import "server-only";
 
+import { upsertLastCandleMarketBatch } from "@/app/utils/market/last-candle-market";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
 
 type QuoteHistoryPayload = {
@@ -33,9 +34,12 @@ const buildQuoteHistoryRow = (quote: QuoteHistoryPayload) => {
 };
 
 export async function saveQuoteHistory(quote: QuoteHistoryPayload) {
-    const { error } = await supabaseAdmin.from("quote_history").insert(
-        buildQuoteHistoryRow(quote)
-    );
+    // Keep snapshot in sync with the same quote flow used by history.
+    await upsertLastCandleMarketBatch([quote]);
+
+    const { error } = await supabaseAdmin
+        .from("quote_history")
+        .insert(buildQuoteHistoryRow(quote));
 
     if (error) {
         throw error;
@@ -46,6 +50,9 @@ export async function saveQuoteHistoryBatch(quotes: QuoteHistoryPayload[]) {
     if (!Array.isArray(quotes) || quotes.length === 0) {
         return;
     }
+
+    // Keep snapshot in sync with the same quote flow used by history.
+    await upsertLastCandleMarketBatch(quotes);
 
     const rows = quotes.map(buildQuoteHistoryRow);
     const { error } = await supabaseAdmin.from("quote_history").insert(rows);
