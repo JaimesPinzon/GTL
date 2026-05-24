@@ -58,12 +58,19 @@ async function handleRefresh(request: Request) {
     );
 
     try {
-        const lockAcquired = await acquireMarketQuotesRefreshLock({
-            minIntervalMs:
-                Number.isFinite(minIntervalMs) && minIntervalMs > 0
-                    ? minIntervalMs
-                    : 108000,
-        });
+        let lockAcquired = true;
+        let lockBypassed = false;
+        try {
+            lockAcquired = await acquireMarketQuotesRefreshLock({
+                minIntervalMs:
+                    Number.isFinite(minIntervalMs) && minIntervalMs > 0
+                        ? minIntervalMs
+                        : 108000,
+            });
+        } catch {
+            lockAcquired = true;
+            lockBypassed = true;
+        }
 
         if (!lockAcquired) {
             return NextResponse.json(
@@ -89,12 +96,19 @@ async function handleRefresh(request: Request) {
 
         let persistedSnapshot = true;
         let persistedHistory = true;
+        let snapshotPersistError: string | null = null;
+        let historyPersistError: string | null = null;
         try {
             await upsertLastCandleMarketBatch(successfulQuotes);
-            await markMarketQuotesRefreshComplete();
+            if (!lockBypassed) {
+                await markMarketQuotesRefreshComplete();
+            }
         } catch {
             persistedSnapshot = false;
-            await releaseMarketQuotesRefreshLock();
+            snapshotPersistError = "last_candle_market_upsert_failed";
+            if (!lockBypassed) {
+                await releaseMarketQuotesRefreshLock();
+            }
         }
 
         if (persistedSnapshot) {
@@ -102,9 +116,11 @@ async function handleRefresh(request: Request) {
                 await saveQuoteHistoryBatch(successfulQuotes);
             } catch {
                 persistedHistory = false;
+                historyPersistError = "quote_history_insert_failed";
             }
         } else {
             persistedHistory = false;
+            historyPersistError = "quote_history_skipped_due_snapshot_failure";
         }
 
         const results = quoteResponses.map(({ requestedSymbol, data }) => {
@@ -130,8 +146,11 @@ async function handleRefresh(request: Request) {
                 ok: true,
                 refreshedAt: new Date().toISOString(),
                 symbols,
+                lockBypassed,
                 persistedSnapshot,
                 persistedHistory,
+                snapshotPersistError,
+                historyPersistError,
                 successfulQuotesCount: successfulQuotes.length,
                 results,
             },
