@@ -31,7 +31,7 @@ export async function OPTIONS() {
     });
 }
 
-export async function GET(request: Request) {
+async function handleRefresh(request: Request) {
     if (!isAuthorized(request)) {
         return NextResponse.json(
             {
@@ -106,4 +106,12 @@ export async function GET(request: Request) {
             }
         );
     }
+}
+
+export async function GET(request: Request) {
+    return handleRefresh(request);
+}
+
+export async function POST(request: Request) {
+    return handleRefresh(request);
 }

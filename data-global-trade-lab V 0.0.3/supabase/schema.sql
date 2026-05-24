@@ -556,6 +556,57 @@ select cron.schedule(
     $$ select public.trigger_market_base_candles_backfill(); $$
 );
 
+create or replace function public.trigger_market_quotes_refresh()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    backend_url text := nullif(current_setting('app.settings.market_backend_url', true), '');
+    cron_secret text := nullif(current_setting('app.settings.market_cron_secret', true), '');
+    request_headers jsonb := jsonb_build_object('Content-Type', 'application/json');
+begin
+    if backend_url is null then
+        raise notice 'market quotes refresh cron skipped: app.settings.market_backend_url is not configured';
+        return;
+    end if;
+
+    if cron_secret is not null then
+        request_headers := request_headers || jsonb_build_object('Authorization', 'Bearer ' || cron_secret);
+    end if;
+
+    perform net.http_post(
+        url := rtrim(backend_url, '/') || '/api/market/quotes/refresh',
+        headers := request_headers,
+        body := '{}'::jsonb
+    );
+end;
+$$;
+
+select cron.unschedule(jobid)
+from cron.job
+where jobname in ('market-quotes-refresh-108s', 'market-quotes-refresh-2min');
+
+do $$
+begin
+    begin
+        perform cron.schedule(
+            'market-quotes-refresh-108s',
+            '108 seconds',
+            $job$ select public.trigger_market_quotes_refresh(); $job$
+        );
+    exception
+        when others then
+            perform cron.schedule(
+                'market-quotes-refresh-2min',
+                '*/2 * * * *',
+                $job$ select public.trigger_market_quotes_refresh(); $job$
+            );
+    end;
+end;
+$$;
+
 -- Post-migration verification.
 select timeframe, count(*) as total_rows
 from public.candles
@@ -570,7 +621,12 @@ order by tablename;
 
 select jobid, jobname, schedule, command
 from cron.job
-where jobname = 'create-future-candle-partitions';
+where jobname in (
+    'create-future-candle-partitions',
+    'market-base-candles-backfill-5min',
+    'market-quotes-refresh-108s',
+    'market-quotes-refresh-2min'
+);
 
 select count(*) as rows_in_default_partition
 from public.candles_default;
