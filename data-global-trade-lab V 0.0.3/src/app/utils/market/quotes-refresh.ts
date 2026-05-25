@@ -6,7 +6,8 @@ import {
     markMarketQuotesRefreshComplete,
     releaseMarketQuotesRefreshLock,
 } from "@/app/utils/market/refresh-control";
-import { parseTrackedSymbols } from "@/app/utils/market/symbols";
+import { normalizeMarketSymbols, parseTrackedSymbols } from "@/app/utils/market/symbols";
+import { supabaseAdmin } from "@/app/utils/supabase/admin";
 import { saveQuoteHistoryBatch } from "@/app/utils/twelvedata/history";
 import { getTwelveDataQuotes } from "@/app/utils/twelvedata/server";
 
@@ -50,6 +51,7 @@ export type MarketQuotesRefreshResult = {
 };
 
 const DEFAULT_REFRESH_INTERVAL_MS = 108000;
+const SNAPSHOT_SOURCE = "twelvedata";
 
 const parseNumeric = (value: unknown) => {
     const parsed = Number.parseFloat(String(value ?? "").replace(/,/g, ""));
@@ -86,7 +88,7 @@ export async function refreshTrackedQuotesIfDue({
     force?: boolean;
 } = {}): Promise<MarketQuotesRefreshResult> {
     const resolvedSymbols = Array.isArray(symbols) && symbols.length > 0
-        ? [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))]
+        ? normalizeMarketSymbols(symbols)
         : parseTrackedSymbols(null);
 
     if (resolvedSymbols.length === 0) {
@@ -188,6 +190,29 @@ export async function refreshTrackedQuotesIfDue({
             error instanceof Error
                 ? error.message
                 : "quote_history_insert_failed";
+    }
+
+    try {
+        const symbolsListForSql = `(${resolvedSymbols.map((symbol) => `"${symbol.replace(/"/g, '\\"')}"`).join(",")})`;
+        const { error: cleanupError } = await supabaseAdmin
+            .from("last_candle_market")
+            .delete()
+            .eq("source", SNAPSHOT_SOURCE)
+            .not("symbol", "in", symbolsListForSql);
+
+        if (cleanupError) {
+            historyPersistError = historyPersistError
+                ? `${historyPersistError}; snapshot_cleanup_failed: ${cleanupError.message}`
+                : `snapshot_cleanup_failed: ${cleanupError.message}`;
+        }
+    } catch (cleanupUnknownError) {
+        const cleanupMessage =
+            cleanupUnknownError instanceof Error
+                ? cleanupUnknownError.message
+                : "snapshot_cleanup_failed";
+        historyPersistError = historyPersistError
+            ? `${historyPersistError}; ${cleanupMessage}`
+            : cleanupMessage;
     }
 
     return {

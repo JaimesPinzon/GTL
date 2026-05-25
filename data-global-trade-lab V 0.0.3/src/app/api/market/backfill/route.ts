@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { parseTrackedSymbols } from "@/app/utils/market/symbols";
 import { saveMarketCandles } from "@/app/utils/twelvedata/candles";
 import { getYahooHistoricalChart, toYahooSymbol } from "@/app/utils/yahoo/server";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
@@ -10,7 +11,7 @@ const corsHeaders = {
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-const defaultSymbols = ["BTC/USD", "ETH/USD", "XRP/USD", "ADA/USD", "SOL/USD", "NU"];
+const defaultSymbols = parseTrackedSymbols(null);
 
 const baseIntervals = [
     { providerInterval: "1m", range: "max" },
