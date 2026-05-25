@@ -11,6 +11,7 @@ export type MarketQuoteSnapshotInput = {
     name?: string;
     exchange?: string;
     currency?: string;
+    price?: string;
     close?: string;
     open?: string;
     high?: string;
@@ -67,7 +68,7 @@ type LastCandleMarketRow = {
 const normalizeSymbol = (value: unknown) => String(value || "").trim().toUpperCase();
 
 const toNumeric = (value: unknown) => {
-    const parsed = Number.parseFloat(String(value ?? ""));
+    const parsed = Number.parseFloat(String(value ?? "").replace(/,/g, ""));
     return Number.isFinite(parsed) ? parsed : null;
 };
 
@@ -116,7 +117,8 @@ const buildSnapshotRow = (
         return null;
     }
 
-    const price = toNumeric(quote.close);
+    const normalizedClose = quote.close ?? quote.price;
+    const price = toNumeric(normalizedClose);
     if (!price || price <= 0) {
         return null;
     }
@@ -125,7 +127,7 @@ const buildSnapshotRow = (
     const openPrice = toNumeric(quote.open);
     const highPrice = toNumeric(quote.high);
     const lowPrice = toNumeric(quote.low);
-    const closePrice = toNumeric(quote.close);
+    const closePrice = toNumeric(normalizedClose);
     const volume = toNumeric(quote.volume);
     const percentChange = toNumeric(quote.percent_change);
     const candleTimeIso = toIsoTimestamp(quote.timestamp, fetchedAtIso);
@@ -256,12 +258,29 @@ export async function upsertLastCandleMarketBatch(
         return;
     }
 
-    const { error } = await supabaseAdmin
+    const { error: batchError } = await supabaseAdmin
         .from("last_candle_market")
         .upsert(rowsToUpsert, { onConflict: "symbol,source" });
 
-    if (error) {
-        throw error;
+    if (!batchError) {
+        return;
+    }
+
+    const rowErrors: string[] = [];
+    for (const row of rowsToUpsert) {
+        const { error: rowError } = await supabaseAdmin
+            .from("last_candle_market")
+            .upsert(row, { onConflict: "symbol,source" });
+
+        if (rowError) {
+            rowErrors.push(`${row.symbol}: ${rowError.message}`);
+        }
+    }
+
+    if (rowErrors.length > 0) {
+        throw new Error(
+            `last_candle_market upsert failed. Batch error: ${batchError.message}. Row errors: ${rowErrors.join(" | ")}`
+        );
     }
 }
 

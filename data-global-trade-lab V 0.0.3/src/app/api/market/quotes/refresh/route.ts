@@ -12,7 +12,7 @@ import { getTwelveDataQuotes } from "@/app/utils/twelvedata/server";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
@@ -103,24 +103,25 @@ async function handleRefresh(request: Request) {
             if (!lockBypassed) {
                 await markMarketQuotesRefreshComplete();
             }
-        } catch {
+        } catch (error) {
             persistedSnapshot = false;
-            snapshotPersistError = "last_candle_market_upsert_failed";
+            snapshotPersistError =
+                error instanceof Error
+                    ? error.message
+                    : "last_candle_market_upsert_failed";
             if (!lockBypassed) {
                 await releaseMarketQuotesRefreshLock();
             }
         }
 
-        if (persistedSnapshot) {
-            try {
-                await saveQuoteHistoryBatch(successfulQuotes);
-            } catch {
-                persistedHistory = false;
-                historyPersistError = "quote_history_insert_failed";
-            }
-        } else {
+        try {
+            await saveQuoteHistoryBatch(successfulQuotes, { syncSnapshot: false });
+        } catch (error) {
             persistedHistory = false;
-            historyPersistError = "quote_history_skipped_due_snapshot_failure";
+            historyPersistError =
+                error instanceof Error
+                    ? error.message
+                    : "quote_history_insert_failed";
         }
 
         const results = quoteResponses.map(({ requestedSymbol, data }) => {

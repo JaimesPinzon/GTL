@@ -9,6 +9,7 @@ type QuoteHistoryPayload = {
     name?: string;
     exchange?: string;
     currency?: string;
+    price?: string;
     close?: string;
     is_market_open?: boolean;
     percent_change?: string;
@@ -16,7 +17,7 @@ type QuoteHistoryPayload = {
 };
 
 const buildQuoteHistoryRow = (quote: QuoteHistoryPayload) => {
-    const close = Number.parseFloat(quote.close ?? "");
+    const close = Number.parseFloat((quote.close ?? quote.price ?? "").replace(/,/g, ""));
     const percentChange = Number.parseFloat(quote.percent_change ?? "");
 
     return {
@@ -34,25 +35,20 @@ const buildQuoteHistoryRow = (quote: QuoteHistoryPayload) => {
 };
 
 export async function saveQuoteHistory(quote: QuoteHistoryPayload) {
-    // Keep snapshot in sync with the same quote flow used by history.
-    await upsertLastCandleMarketBatch([quote]);
-
-    const { error } = await supabaseAdmin
-        .from("quote_history")
-        .insert(buildQuoteHistoryRow(quote));
-
-    if (error) {
-        throw error;
-    }
+    await saveQuoteHistoryBatch([quote]);
 }
 
-export async function saveQuoteHistoryBatch(quotes: QuoteHistoryPayload[]) {
+export async function saveQuoteHistoryBatch(
+    quotes: QuoteHistoryPayload[],
+    { syncSnapshot = true }: { syncSnapshot?: boolean } = {}
+) {
     if (!Array.isArray(quotes) || quotes.length === 0) {
         return;
     }
 
-    // Keep snapshot in sync with the same quote flow used by history.
-    await upsertLastCandleMarketBatch(quotes);
+    if (syncSnapshot) {
+        await upsertLastCandleMarketBatch(quotes);
+    }
 
     const rows = quotes.map(buildQuoteHistoryRow);
     const { error } = await supabaseAdmin.from("quote_history").insert(rows);

@@ -148,6 +148,148 @@ create table if not exists public.last_candle_market (
 create index if not exists last_candle_market_fetched_at_idx
     on public.last_candle_market (fetched_at desc);
 
+create or replace function public.sync_last_candle_market_from_quote_history()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+    normalized_symbol text := upper(trim(coalesce(new.requested_symbol, '')));
+begin
+    if normalized_symbol = '' then
+        return new;
+    end if;
+
+    if new.close_price is null or new.close_price <= 0 then
+        return new;
+    end if;
+
+    insert into public.last_candle_market (
+        symbol,
+        source,
+        provider_symbol,
+        asset_name,
+        exchange,
+        currency,
+        price,
+        open_price,
+        high_price,
+        low_price,
+        close_price,
+        volume,
+        percent_change,
+        is_market_open,
+        candle_time,
+        fetched_at,
+        status,
+        error_message
+    )
+    values (
+        normalized_symbol,
+        'twelvedata',
+        upper(trim(coalesce(new.provider_symbol, new.requested_symbol))),
+        nullif(trim(coalesce(new.asset_name, '')), ''),
+        nullif(trim(coalesce(new.exchange, '')), ''),
+        nullif(trim(coalesce(new.currency, '')), ''),
+        new.close_price,
+        null,
+        null,
+        null,
+        new.close_price,
+        null,
+        new.percent_change,
+        new.is_market_open,
+        coalesce(new.fetched_at, timezone('utc', now())),
+        coalesce(new.fetched_at, timezone('utc', now())),
+        'ok',
+        null
+    )
+    on conflict (symbol, source) do update
+    set
+        provider_symbol = excluded.provider_symbol,
+        asset_name = excluded.asset_name,
+        exchange = excluded.exchange,
+        currency = excluded.currency,
+        price = excluded.price,
+        close_price = excluded.close_price,
+        percent_change = excluded.percent_change,
+        is_market_open = excluded.is_market_open,
+        candle_time = excluded.candle_time,
+        fetched_at = excluded.fetched_at,
+        status = excluded.status,
+        error_message = excluded.error_message
+    where excluded.candle_time > public.last_candle_market.candle_time
+       or (
+            excluded.candle_time = public.last_candle_market.candle_time
+            and excluded.fetched_at >= public.last_candle_market.fetched_at
+        );
+
+    return new;
+end;
+$$;
+
+drop trigger if exists quote_history_sync_last_candle_market on public.quote_history;
+create trigger quote_history_sync_last_candle_market
+after insert on public.quote_history
+for each row
+execute function public.sync_last_candle_market_from_quote_history();
+
+insert into public.last_candle_market (
+    symbol,
+    source,
+    provider_symbol,
+    asset_name,
+    exchange,
+    currency,
+    price,
+    close_price,
+    percent_change,
+    is_market_open,
+    candle_time,
+    fetched_at,
+    status,
+    error_message
+)
+select distinct on (upper(trim(q.requested_symbol)))
+    upper(trim(q.requested_symbol)) as symbol,
+    'twelvedata' as source,
+    upper(trim(coalesce(q.provider_symbol, q.requested_symbol))) as provider_symbol,
+    nullif(trim(coalesce(q.asset_name, '')), '') as asset_name,
+    nullif(trim(coalesce(q.exchange, '')), '') as exchange,
+    nullif(trim(coalesce(q.currency, '')), '') as currency,
+    q.close_price as price,
+    q.close_price as close_price,
+    q.percent_change,
+    q.is_market_open,
+    q.fetched_at as candle_time,
+    q.fetched_at,
+    'ok' as status,
+    null::text as error_message
+from public.quote_history q
+where q.close_price is not null
+  and q.close_price > 0
+  and length(trim(coalesce(q.requested_symbol, ''))) > 0
+order by upper(trim(q.requested_symbol)), q.fetched_at desc, q.id desc
+on conflict (symbol, source) do update
+set
+    provider_symbol = excluded.provider_symbol,
+    asset_name = excluded.asset_name,
+    exchange = excluded.exchange,
+    currency = excluded.currency,
+    price = excluded.price,
+    close_price = excluded.close_price,
+    percent_change = excluded.percent_change,
+    is_market_open = excluded.is_market_open,
+    candle_time = excluded.candle_time,
+    fetched_at = excluded.fetched_at,
+    status = excluded.status,
+    error_message = excluded.error_message
+where excluded.candle_time > public.last_candle_market.candle_time
+   or (
+        excluded.candle_time = public.last_candle_market.candle_time
+        and excluded.fetched_at >= public.last_candle_market.fetched_at
+    );
+
 create table if not exists public.market_fetch_control (
     id text primary key,
     last_fetched_at timestamptz not null default to_timestamp(0),
