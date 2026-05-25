@@ -1,14 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { upsertLastCandleMarketBatch } from "@/app/utils/market/last-candle-market";
-import {
-    acquireMarketQuotesRefreshLock,
-    markMarketQuotesRefreshComplete,
-    releaseMarketQuotesRefreshLock,
-} from "@/app/utils/market/refresh-control";
+import { refreshTrackedQuotesIfDue } from "@/app/utils/market/quotes-refresh";
 import { parseTrackedSymbols } from "@/app/utils/market/symbols";
-import { saveQuoteHistoryBatch } from "@/app/utils/twelvedata/history";
-import { getTwelveDataQuotes } from "@/app/utils/twelvedata/server";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -28,6 +21,8 @@ function isAuthorized(request: Request) {
 }
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function OPTIONS() {
     return new NextResponse(null, {
@@ -52,118 +47,17 @@ async function handleRefresh(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const symbols = parseTrackedSymbols(searchParams.get("symbols"));
-    const minIntervalMs = Number.parseInt(
-        String(process.env.MARKET_QUOTES_REFRESH_TTL_MS ?? "108000"),
-        10
-    );
-
     try {
-        let lockAcquired = true;
-        let lockBypassed = false;
-        try {
-            lockAcquired = await acquireMarketQuotesRefreshLock({
-                minIntervalMs:
-                    Number.isFinite(minIntervalMs) && minIntervalMs > 0
-                        ? minIntervalMs
-                        : 108000,
-            });
-        } catch {
-            lockAcquired = true;
-            lockBypassed = true;
-        }
-
-        if (!lockAcquired) {
-            return NextResponse.json(
-                {
-                    ok: true,
-                    skipped: true,
-                    reason: "refresh_window_locked_or_not_due",
-                    refreshedAt: new Date().toISOString(),
-                    symbols,
-                    results: [],
-                },
-                { headers: corsHeaders }
-            );
-        }
-
-        const quoteResponses = await getTwelveDataQuotes(symbols);
-        const successfulQuotes = quoteResponses
-            .filter(({ data }) => !(data.status === "error" || data.code || data.message))
-            .map(({ requestedSymbol, data }) => ({
-                requestedSymbol,
-                ...data,
-            }));
-
-        let persistedSnapshot = true;
-        let persistedHistory = true;
-        let snapshotPersistError: string | null = null;
-        let historyPersistError: string | null = null;
-        try {
-            await upsertLastCandleMarketBatch(successfulQuotes);
-            if (!lockBypassed) {
-                await markMarketQuotesRefreshComplete();
-            }
-        } catch (error) {
-            persistedSnapshot = false;
-            snapshotPersistError =
-                error instanceof Error
-                    ? error.message
-                    : "last_candle_market_upsert_failed";
-            if (!lockBypassed) {
-                await releaseMarketQuotesRefreshLock();
-            }
-        }
-
-        try {
-            await saveQuoteHistoryBatch(successfulQuotes, { syncSnapshot: false });
-        } catch (error) {
-            persistedHistory = false;
-            historyPersistError =
-                error instanceof Error
-                    ? error.message
-                    : "quote_history_insert_failed";
-        }
-
-        const results = quoteResponses.map(({ requestedSymbol, data }) => {
-            if (data.status === "error" || data.code || data.message) {
-                return {
-                    requestedSymbol,
-                    ok: false,
-                    error: data.message ?? "Unexpected TwelveData error",
-                };
-            }
-
-            return {
-                requestedSymbol,
-                ok: true,
-                persistedSnapshot,
-                persistedHistory,
-                data,
-            };
-        });
+        const refreshResult = await refreshTrackedQuotesIfDue({ symbols });
 
         return NextResponse.json(
             {
-                ok: true,
-                refreshedAt: new Date().toISOString(),
+                ...refreshResult,
                 symbols,
-                lockBypassed,
-                persistedSnapshot,
-                persistedHistory,
-                snapshotPersistError,
-                historyPersistError,
-                successfulQuotesCount: successfulQuotes.length,
-                results,
             },
             { headers: corsHeaders }
         );
     } catch (error) {
-        try {
-            await releaseMarketQuotesRefreshLock();
-        } catch {
-            // Ignore unlock errors here; original error is more relevant.
-        }
-
         return NextResponse.json(
             {
                 ok: false,

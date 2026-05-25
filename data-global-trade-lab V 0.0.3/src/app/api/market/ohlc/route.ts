@@ -42,6 +42,8 @@ function shouldUseLiveTimeSeries(providerInterval: string) {
 }
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function OPTIONS() {
     return new NextResponse(null, {
@@ -133,15 +135,29 @@ export async function GET(request: Request) {
                 timeframe,
                 data: candles,
             },
-            { headers: corsHeaders }
+            {
+                headers: {
+                    ...corsHeaders,
+                    "Cache-Control": "no-store",
+                },
+            }
         );
     } catch (error) {
         return NextResponse.json(
             {
-                ok: false,
+                ok: true,
+                degraded: true,
+                symbol,
+                timeframe,
+                data: [],
                 error: error instanceof Error ? error.message : "Unexpected OHLC error",
             },
-            { status: 500, headers: corsHeaders }
+            {
+                headers: {
+                    ...corsHeaders,
+                    "Cache-Control": "no-store",
+                },
+            }
         );
     }
 }
