@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { listLastCandleMarketSnapshots } from "@/app/utils/market/last-candle-market";
+import { parseTrackedSymbols } from "@/app/utils/market/symbols";
 import { refreshTrackedQuotesIfDue } from "@/app/utils/market/quotes-refresh";
 
 const corsHeaders = {
@@ -95,9 +96,11 @@ export async function GET(request: Request) {
     const source = searchParams.get("source")?.trim() || "twelvedata";
     const rawSymbols = searchParams.get("symbols")?.trim() || "";
     const symbols = rawSymbols
-        .split(",")
-        .map((symbol) => symbol.trim())
-        .filter(Boolean);
+        ? rawSymbols
+            .split(",")
+            .map((symbol) => symbol.trim())
+            .filter(Boolean)
+        : parseTrackedSymbols(null);
 
     try {
         let rows = await listLastCandleMarketSnapshots({

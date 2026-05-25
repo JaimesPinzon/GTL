@@ -134,6 +134,7 @@ create table if not exists public.last_candle_market (
     volume numeric(24, 8),
     percent_change numeric(14, 4),
     is_market_open boolean,
+    market_status text not null default 'unknown' check (market_status in ('open', 'closed', 'unknown')),
     candle_time timestamptz not null,
     fetched_at timestamptz not null default timezone('utc', now()),
     status text not null default 'ok' check (status in ('ok', 'stale', 'error')),
@@ -144,6 +145,18 @@ create table if not exists public.last_candle_market (
     constraint last_candle_market_source_not_empty check (length(trim(source)) > 0),
     primary key (symbol, source)
 );
+
+alter table if exists public.last_candle_market
+    add column if not exists market_status text not null default 'unknown';
+
+update public.last_candle_market
+set market_status = case
+    when is_market_open is true then 'open'
+    when is_market_open is false then 'closed'
+    else 'unknown'
+end
+where market_status is null
+   or market_status not in ('open', 'closed', 'unknown');
 
 create index if not exists last_candle_market_fetched_at_idx
     on public.last_candle_market (fetched_at desc);
@@ -179,6 +192,7 @@ begin
         volume,
         percent_change,
         is_market_open,
+        market_status,
         candle_time,
         fetched_at,
         status,
@@ -199,6 +213,11 @@ begin
         null,
         new.percent_change,
         new.is_market_open,
+        case
+            when new.is_market_open is true then 'open'
+            when new.is_market_open is false then 'closed'
+            else 'unknown'
+        end,
         coalesce(new.fetched_at, timezone('utc', now())),
         coalesce(new.fetched_at, timezone('utc', now())),
         'ok',
@@ -214,6 +233,7 @@ begin
         close_price = excluded.close_price,
         percent_change = excluded.percent_change,
         is_market_open = excluded.is_market_open,
+        market_status = excluded.market_status,
         candle_time = excluded.candle_time,
         fetched_at = excluded.fetched_at,
         status = excluded.status,
@@ -245,6 +265,7 @@ insert into public.last_candle_market (
     close_price,
     percent_change,
     is_market_open,
+    market_status,
     candle_time,
     fetched_at,
     status,
@@ -261,6 +282,11 @@ select distinct on (upper(trim(q.requested_symbol)))
     q.close_price as close_price,
     q.percent_change,
     q.is_market_open,
+    case
+        when q.is_market_open is true then 'open'
+        when q.is_market_open is false then 'closed'
+        else 'unknown'
+    end as market_status,
     q.fetched_at as candle_time,
     q.fetched_at,
     'ok' as status,
@@ -280,6 +306,7 @@ set
     close_price = excluded.close_price,
     percent_change = excluded.percent_change,
     is_market_open = excluded.is_market_open,
+    market_status = excluded.market_status,
     candle_time = excluded.candle_time,
     fetched_at = excluded.fetched_at,
     status = excluded.status,

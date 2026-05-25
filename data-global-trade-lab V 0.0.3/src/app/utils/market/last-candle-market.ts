@@ -17,7 +17,7 @@ export type MarketQuoteSnapshotInput = {
     high?: string;
     low?: string;
     volume?: string;
-    is_market_open?: boolean;
+    is_market_open?: boolean | string | number | null;
     percent_change?: string;
     timestamp?: string;
 };
@@ -39,6 +39,7 @@ export type LastCandleMarketSnapshot = {
     isMarketOpen: boolean | null;
     candleTime: string;
     fetchedAt: string;
+    marketStatus: string;
     status: string;
     errorMessage: string | null;
     isStale: boolean;
@@ -61,6 +62,7 @@ type LastCandleMarketRow = {
     is_market_open: boolean | null;
     candle_time: string;
     fetched_at: string;
+    market_status: string;
     status: string;
     error_message: string | null;
 };
@@ -70,6 +72,45 @@ const normalizeSymbol = (value: unknown) => String(value || "").trim().toUpperCa
 const toNumeric = (value: unknown) => {
     const parsed = Number.parseFloat(String(value ?? "").replace(/,/g, ""));
     return Number.isFinite(parsed) ? parsed : null;
+};
+
+const toNullableBoolean = (value: unknown) => {
+    if (typeof value === "boolean") {
+        return value;
+    }
+
+    if (typeof value === "number") {
+        if (value === 1) {
+            return true;
+        }
+        if (value === 0) {
+            return false;
+        }
+    }
+
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (["true", "t", "1", "yes", "y", "on", "open"].includes(normalized)) {
+            return true;
+        }
+        if (["false", "f", "0", "no", "n", "off", "closed"].includes(normalized)) {
+            return false;
+        }
+    }
+
+    return null;
+};
+
+const resolveMarketStatus = (isMarketOpen: boolean | null) => {
+    if (isMarketOpen === true) {
+        return "open";
+    }
+
+    if (isMarketOpen === false) {
+        return "closed";
+    }
+
+    return "unknown";
 };
 
 const toIsoTimestamp = (value: unknown, fallbackIso: string) => {
@@ -131,6 +172,7 @@ const buildSnapshotRow = (
     const volume = toNumeric(quote.volume);
     const percentChange = toNumeric(quote.percent_change);
     const candleTimeIso = toIsoTimestamp(quote.timestamp, fetchedAtIso);
+    const isMarketOpen = toNullableBoolean(quote.is_market_open);
 
     return {
         symbol,
@@ -146,12 +188,10 @@ const buildSnapshotRow = (
         close_price: closePrice ?? price,
         volume,
         percent_change: percentChange,
-        is_market_open:
-            typeof quote.is_market_open === "boolean"
-                ? quote.is_market_open
-                : null,
+        is_market_open: isMarketOpen,
         candle_time: candleTimeIso,
         fetched_at: fetchedAtIso,
+        market_status: resolveMarketStatus(isMarketOpen),
         status: "ok",
         error_message: null,
     };
@@ -182,6 +222,7 @@ const mapRowToSnapshot = (
         isMarketOpen: row.is_market_open,
         candleTime: row.candle_time,
         fetchedAt: row.fetched_at,
+        marketStatus: row.market_status || resolveMarketStatus(row.is_market_open),
         status: row.status,
         errorMessage: row.error_message,
         isStale,
@@ -298,7 +339,7 @@ export async function getLastCandleMarketBySymbols(symbols: string[]) {
     const { data, error } = await supabaseAdmin
         .from("last_candle_market")
         .select(
-            "symbol, source, provider_symbol, asset_name, exchange, currency, price, open_price, high_price, low_price, close_price, volume, percent_change, is_market_open, candle_time, fetched_at, status, error_message"
+            "symbol, source, provider_symbol, asset_name, exchange, currency, price, open_price, high_price, low_price, close_price, volume, percent_change, is_market_open, candle_time, fetched_at, market_status, status, error_message"
         )
         .eq("source", DEFAULT_SOURCE)
         .in("symbol", normalizedSymbols);
@@ -340,7 +381,7 @@ export async function listLastCandleMarketSnapshots({
     let query = supabaseAdmin
         .from("last_candle_market")
         .select(
-            "symbol, source, provider_symbol, asset_name, exchange, currency, price, open_price, high_price, low_price, close_price, volume, percent_change, is_market_open, candle_time, fetched_at, status, error_message"
+            "symbol, source, provider_symbol, asset_name, exchange, currency, price, open_price, high_price, low_price, close_price, volume, percent_change, is_market_open, candle_time, fetched_at, market_status, status, error_message"
         )
         .eq("source", normalizedSource)
         .order("fetched_at", { ascending: false })
