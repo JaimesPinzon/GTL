@@ -13,7 +13,7 @@ import TradeFormLogic from './TradeForm/TradeFormLogic';
 import TradeFormUI from './TradeForm/TradeFormUI';
 
 const TradeForm = () => {
-  const { selectedSymbol, openPosition, user, getCurrentPrice, initialSymbols } = useTradingWorkspace();
+  const { selectedSymbol, openPosition, user, balance, getCurrentPrice, initialSymbols } = useTradingWorkspace();
   const { toast } = useToast();
 
   const currentSymbolInfo = initialSymbols.find(s => s.id === selectedSymbol);
@@ -71,7 +71,7 @@ const TradeForm = () => {
       handleFileChange={handleFileChange}
       handleSubmit={handleSubmit}
       totalCostUSD={totalCostUSD}
-      userBalance={user?.balance || 0}
+      userBalance={balance ?? user?.balance ?? 0}
       isStock={currentSymbolInfo?.type === 'stock'}
     />
   );

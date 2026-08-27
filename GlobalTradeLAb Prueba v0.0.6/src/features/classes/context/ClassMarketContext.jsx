@@ -71,6 +71,14 @@ const createQuoteSeries = (symbol, quote) => {
   ];
 };
 
+const createFallbackMarketData = () =>
+  Object.fromEntries(
+    SYMBOL_TEMPLATES.map((symbol) => [
+      symbol.id,
+      createQuoteSeries(symbol, null),
+    ])
+  );
+
 export const useClassMarketContext = () => useContext(ClassMarketContext);
 
 export const ClassMarketContextProvider = ({ children }) => {
@@ -100,6 +108,7 @@ export const ClassMarketContextProvider = ({ children }) => {
 
     let isMounted = true;
     setIsMarketLoading(true);
+    setMarketData(createFallbackMarketData());
 
     const loadMarketSnapshot = async () => {
       try {
@@ -111,12 +120,7 @@ export const ClassMarketContextProvider = ({ children }) => {
           return;
         }
 
-        const nextMarketData = Object.fromEntries(
-          SYMBOL_TEMPLATES.map((symbol) => [
-            symbol.id,
-            createQuoteSeries(symbol, null),
-          ])
-        );
+        const nextMarketData = createFallbackMarketData();
 
         latestQuotes.forEach((entry) => {
           if (!entry.ok || !entry.data) {
@@ -134,7 +138,7 @@ export const ClassMarketContextProvider = ({ children }) => {
       } catch (error) {
         console.error("loadClassMarketSnapshot error", error);
         if (isMounted) {
-          setMarketData(Object.fromEntries(SYMBOL_TEMPLATES.map((symbol) => [symbol.id, []])));
+          setMarketData(createFallbackMarketData());
         }
       } finally {
         if (isMounted) {
