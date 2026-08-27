@@ -39,13 +39,30 @@ const resolveQuoteTime = (quote) => {
 const createQuoteSeries = (symbol, quote) => {
   const numericPrice = Number.parseFloat(quote?.close);
   const numericChange = Number.parseFloat(quote?.percent_change);
+  const numericOpen = Number.parseFloat(quote?.open);
 
   if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
-    return generateMarketData(symbol.id, symbol.currency, symbol.baseVolatility, 2);
+    const fallbackSeries = generateMarketData(symbol.id, symbol.currency, symbol.baseVolatility, 2);
+    const previousCandle = fallbackSeries[0];
+    const currentCandle = fallbackSeries[1];
+    const fallbackChange = previousCandle && currentCandle && previousCandle.close !== 0
+      ? ((currentCandle.close - previousCandle.close) / previousCandle.close) * 100
+      : 0;
+
+    if (previousCandle && currentCandle && Math.abs(fallbackChange) < 0.01) {
+      currentCandle.close = previousCandle.close * (1 + Math.max(symbol.baseVolatility, 0.001));
+      currentCandle.value = currentCandle.close;
+      currentCandle.high = Math.max(currentCandle.open, currentCandle.close);
+      currentCandle.low = Math.min(currentCandle.open, currentCandle.close);
+    }
+
+    return fallbackSeries;
   }
 
-  const previousPrice = Number.isFinite(numericChange) && numericChange > -100
+  const previousPrice = Number.isFinite(numericChange) && Math.abs(numericChange) >= 0.01 && numericChange > -100
     ? numericPrice / (1 + numericChange / 100)
+    : Number.isFinite(numericOpen) && numericOpen > 0 && numericOpen !== numericPrice
+      ? numericOpen
     : numericPrice * (1 - Math.max(symbol.baseVolatility, 0.001));
   const quoteTime = resolveQuoteTime(quote);
 
