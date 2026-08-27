@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
-import { getQuotesFromBackend } from "@/lib/backend-market";
+import { getMarketHistoryFromBackend, getQuotesFromBackend } from "@/lib/backend-market";
 import { generateMarketData } from "@/lib/market-data";
 import { CLASS_CONTEXT_PATHS } from "@/lib/routes";
 import { useClassContext } from "@/features/classes/context/ClassContext";
@@ -36,7 +36,7 @@ const resolveQuoteTime = (quote) => {
   return Number.isFinite(candidate.getTime()) ? candidate : new Date();
 };
 
-const createQuoteSeries = (symbol, quote) => {
+const createQuoteSeries = (symbol, quote, historicalReferencePrice = null) => {
   const numericPrice = Number.parseFloat(quote?.close);
   const numericChange = Number.parseFloat(quote?.percent_change);
   const numericOpen = Number.parseFloat(quote?.open);
@@ -59,7 +59,9 @@ const createQuoteSeries = (symbol, quote) => {
     return fallbackSeries;
   }
 
-  const previousPrice = Number.isFinite(numericChange) && Math.abs(numericChange) >= 0.01 && numericChange > -100
+  const previousPrice = Number.isFinite(historicalReferencePrice) && historicalReferencePrice > 0
+    ? historicalReferencePrice
+    : Number.isFinite(numericChange) && Math.abs(numericChange) >= 0.01 && numericChange > -100
     ? numericPrice / (1 + numericChange / 100)
     : Number.isFinite(numericOpen) && numericOpen > 0 && numericOpen !== numericPrice
       ? numericOpen
@@ -84,8 +86,29 @@ const createQuoteSeries = (symbol, quote) => {
       close: numericPrice,
       value: numericPrice,
       currency: quote.currency ?? symbol.currency,
+      referencePrice24h: previousPrice,
     },
   ];
+};
+
+const find24HourReferencePrice = (historyEntry, currentTime) => {
+  const candles = Array.isArray(historyEntry?.data) ? historyEntry.data : [];
+  const targetTime = currentTime.getTime() - 24 * 60 * 60 * 1000;
+
+  return candles.reduce((closestPrice, candle) => {
+    const candleTime = new Date(candle.time ?? candle.timestamp ?? candle.date).getTime();
+    const candlePrice = Number.parseFloat(candle.close ?? candle.value);
+
+    if (!Number.isFinite(candleTime) || !Number.isFinite(candlePrice) || candlePrice <= 0) {
+      return closestPrice;
+    }
+
+    if (!closestPrice || Math.abs(candleTime - targetTime) < closestPrice.distance) {
+      return { distance: Math.abs(candleTime - targetTime), price: candlePrice };
+    }
+
+    return closestPrice;
+  }, null)?.price ?? null;
 };
 
 const createFallbackMarketData = () =>
@@ -137,6 +160,18 @@ export const ClassMarketContextProvider = ({ children }) => {
           return;
         }
 
+        const historicalResults = await getMarketHistoryFromBackend(
+          SYMBOL_TEMPLATES.map((symbol) => symbol.id),
+          48,
+          "1H"
+        ).catch((error) => {
+          console.error("loadClassMarketHistory error", error);
+          return [];
+        });
+
+        const historyBySymbol = new Map(
+          historicalResults.map((entry) => [entry.localSymbol, entry])
+        );
         const nextMarketData = createFallbackMarketData();
 
         latestQuotes.forEach((entry) => {
@@ -147,7 +182,14 @@ export const ClassMarketContextProvider = ({ children }) => {
           const symbolId = entry.localSymbol;
           const symbol = SYMBOL_TEMPLATES.find((item) => item.id === symbolId);
           if (symbol) {
-            nextMarketData[symbolId] = createQuoteSeries(symbol, entry.data);
+            nextMarketData[symbolId] = createQuoteSeries(
+              symbol,
+              entry.data,
+              find24HourReferencePrice(
+                historyBySymbol.get(symbolId),
+                resolveQuoteTime(entry.data)
+              )
+            );
           }
         });
 
@@ -253,11 +295,13 @@ export const ClassMarketContextProvider = ({ children }) => {
     const currentCandle = marketData[symbolId].slice(-1)[0];
     const previousCandle = marketData[symbolId].slice(-2)[0];
 
-    if (!currentCandle || !previousCandle || previousCandle.close === 0) {
+    const referencePrice = currentCandle.referencePrice24h ?? previousCandle?.close;
+
+    if (!currentCandle || !Number.isFinite(referencePrice) || referencePrice === 0) {
       return 0;
     }
 
-    return ((currentCandle.close - previousCandle.close) / previousCandle.close) * 100;
+    return ((currentCandle.close - referencePrice) / referencePrice) * 100;
   };
 
   const symbols = useMemo(
