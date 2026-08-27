@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { getQuotesFromBackend } from "@/lib/backend-market";
+import { generateMarketData } from "@/lib/market-data";
 import { CLASS_CONTEXT_PATHS } from "@/lib/routes";
 import { useClassContext } from "@/features/classes/context/ClassContext";
 
@@ -33,6 +34,41 @@ const SYMBOL_TEMPLATES = [
 const resolveQuoteTime = (quote) => {
   const candidate = quote?.timestamp ? new Date(quote.timestamp) : new Date();
   return Number.isFinite(candidate.getTime()) ? candidate : new Date();
+};
+
+const createQuoteSeries = (symbol, quote) => {
+  const numericPrice = Number.parseFloat(quote?.close);
+  const numericChange = Number.parseFloat(quote?.percent_change);
+
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+    return generateMarketData(symbol.id, symbol.currency, symbol.baseVolatility, 2);
+  }
+
+  const previousPrice = Number.isFinite(numericChange) && numericChange > -100
+    ? numericPrice / (1 + numericChange / 100)
+    : numericPrice * (1 - Math.max(symbol.baseVolatility, 0.001));
+  const quoteTime = resolveQuoteTime(quote);
+
+  return [
+    {
+      time: new Date(quoteTime.getTime() - 60000),
+      open: previousPrice,
+      high: previousPrice,
+      low: previousPrice,
+      close: previousPrice,
+      value: previousPrice,
+      currency: quote.currency ?? symbol.currency,
+    },
+    {
+      time: quoteTime,
+      open: previousPrice,
+      high: Math.max(previousPrice, numericPrice),
+      low: Math.min(previousPrice, numericPrice),
+      close: numericPrice,
+      value: numericPrice,
+      currency: quote.currency ?? symbol.currency,
+    },
+  ];
 };
 
 export const useClassMarketContext = () => useContext(ClassMarketContext);
@@ -76,7 +112,10 @@ export const ClassMarketContextProvider = ({ children }) => {
         }
 
         const nextMarketData = Object.fromEntries(
-          SYMBOL_TEMPLATES.map((symbol) => [symbol.id, []])
+          SYMBOL_TEMPLATES.map((symbol) => [
+            symbol.id,
+            createQuoteSeries(symbol, null),
+          ])
         );
 
         latestQuotes.forEach((entry) => {
@@ -85,23 +124,10 @@ export const ClassMarketContextProvider = ({ children }) => {
           }
 
           const symbolId = entry.localSymbol;
-          const numericPrice = Number.parseFloat(entry.data.close);
-
-          if (!Number.isFinite(numericPrice)) {
-            return;
+          const symbol = SYMBOL_TEMPLATES.find((item) => item.id === symbolId);
+          if (symbol) {
+            nextMarketData[symbolId] = createQuoteSeries(symbol, entry.data);
           }
-
-          nextMarketData[symbolId] = [
-            {
-              time: resolveQuoteTime(entry.data),
-              open: numericPrice,
-              high: numericPrice,
-              low: numericPrice,
-              close: numericPrice,
-              value: numericPrice,
-              currency: entry.data.currency ?? "USD",
-            },
-          ];
         });
 
         setMarketData(nextMarketData);
@@ -152,22 +178,15 @@ export const ClassMarketContextProvider = ({ children }) => {
 
           const numericPrice = Number.parseFloat(quote.close);
 
-          if (!Number.isFinite(numericPrice)) {
+          if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
             return;
           }
 
           if (!nextData[symbolId] || nextData[symbolId].length === 0) {
-            nextData[symbolId] = [
-              {
-                time: resolveQuoteTime(quote),
-                open: numericPrice,
-                high: numericPrice,
-                low: numericPrice,
-                close: numericPrice,
-                value: numericPrice,
-                currency: quote.currency ?? "USD",
-              },
-            ];
+            const symbol = SYMBOL_TEMPLATES.find((item) => item.id === symbolId);
+            if (symbol) {
+              nextData[symbolId] = createQuoteSeries(symbol, quote);
+            }
             return;
           }
 

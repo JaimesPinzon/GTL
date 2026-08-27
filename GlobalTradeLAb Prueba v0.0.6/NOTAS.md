@@ -202,3 +202,10 @@
 * Correccion: Se actualizo el proxy de desarrollo para apuntar a `127.0.0.1` y reducir fallos intermitentes de red al consultar `/api/auth/*` y `/api/market/*`.
 * Agregacion: Se reforzo la degradacion visual del dashboard cuando no hay datos iniciales, permitiendo recuperacion tras la carga posterior de OHLC en backend.
 * Eliminacion: Se retiro la dependencia de endpoints o rutas acopladas a tablas legacy de velas por temporalidad, quedando acoplado al backend con `public.candles`.
+
+20260827
+
+* Correccion: Se ajusto la carga inicial de precios para que todos los activos tengan una serie operable desde el primer snapshot del mercado.
+* Correccion: Se incorporo la variacion porcentual entregada por el backend como referencia del precio anterior, evitando mostrar `0%` por falta de una segunda vela.
+* Correccion: Se agrego un fallback de precios simulados validos cuando un mercado no responde o entrega una cotizacion invalida, evitando que el formulario de operaciones quede bloqueado con precio `0`.
+* Correccion: Se mantuvo la validacion de precio positivo para proteger las operaciones, permitiendo operar en todos los mercados con una cotizacion disponible.
