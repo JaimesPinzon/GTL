@@ -17,6 +17,7 @@ import { clearSupabaseAuthStorage, supabase } from "@/lib/supabase";
 import {
   adjustStudentRoomBalance,
   createRoom,
+  deleteRoom,
   deleteCurrentAccount,
   fetchAccessibleProfiles,
   fetchPortfolio,
@@ -26,6 +27,7 @@ import {
   fetchRoomSimAccounts,
   fetchStudentRooms,
   fetchTeacherRooms,
+  ensureRoomMemberTradingFields,
   joinRoomByCode,
   leaveRoom,
   setStudentRoomBalance,
@@ -56,6 +58,8 @@ import {
   readClientSecurityExtras,
   readClientProfileExtras,
 } from "@/lib/trading-profile";
+import { mergeRoomWithSettings, persistRoomSettings } from "@/lib/room-settings";
+import { resolveUserRoomAccount } from "@/lib/room-balance";
 
 const TradingContext = createContext({});
 const SESSION_STORAGE_KEYS = [
@@ -113,6 +117,67 @@ const isRecoverableSupabaseAuthError = (error) => {
   );
 };
 
+const hasOAuthCallbackTokensInUrl = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const hash = String(window.location.hash || "");
+  if (
+    hash.includes("access_token=") ||
+    hash.includes("refresh_token=") ||
+    hash.includes("error=") ||
+    hash.includes("error_description=")
+  ) {
+    return true;
+  }
+
+  const searchParams = new URLSearchParams(window.location.search || "");
+  return Boolean(searchParams.get("code") || searchParams.get("error") || searchParams.get("error_description"));
+};
+
+const isSupabaseSessionNotReadyError = (error) => {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const normalizedMessage = message.toLowerCase();
+
+  return (
+    normalizedMessage.includes("issued in the future") ||
+    normalizedMessage.includes("clock for skew") ||
+    normalizedMessage.includes("not yet valid") ||
+    normalizedMessage.includes("auth session missing")
+  );
+};
+
+const wait = (ms) =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+
+const getSupabaseSessionUserWithRetries = async ({ attempts = 1, delayMs = 120 } = {}) => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const { data: supabaseSessionData, error: supabaseSessionError } = await supabase.auth.getSession();
+    if (supabaseSessionError) {
+      if (attempt < attempts - 1 && isSupabaseSessionNotReadyError(supabaseSessionError)) {
+        await wait(delayMs);
+        continue;
+      }
+
+      return { user: null, error: supabaseSessionError };
+    }
+
+    const user = supabaseSessionData?.session?.user ?? null;
+    if (user) {
+      return { user, error: null };
+    }
+
+    if (attempt < attempts - 1) {
+      await wait(delayMs);
+    }
+  }
+
+  return { user: null, error: null };
+};
+
 const normalizeAppLanguage = (value) => {
   if (typeof value !== "string") {
     return "es";
@@ -149,6 +214,7 @@ export const TradingProvider = ({ children }) => {
   const [allUsers, setAllUsers] = useLocalStorage("allTradingUsers", []);
   const [currentUserId, setCurrentUserId] = useLocalStorage("currentTradingUserId", null);
   const [activeRoomId, setActiveRoomId] = useLocalStorage("activeTradingRoomId", null);
+  const [authenticatedUserId, setAuthenticatedUserId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [roomMembers, setRoomMembers] = useState([]);
@@ -171,6 +237,43 @@ export const TradingProvider = ({ children }) => {
   useEffect(() => {
     currentUserIdRef.current = currentUserId;
   }, [currentUserId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const syncAuthenticatedUser = async () => {
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        if (!isMounted) {
+          return;
+        }
+
+        if (error) {
+          setAuthenticatedUserId(null);
+          return;
+        }
+
+        setAuthenticatedUserId(data?.user?.id || null);
+      } catch {
+        if (isMounted) {
+          setAuthenticatedUserId(null);
+        }
+      }
+    };
+
+    void syncAuthenticatedUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthenticatedUserId(session?.user?.id || null);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription?.unsubscribe?.();
+    };
+  }, []);
 
   const symbolTemplates = useMemo(
     () => [
@@ -334,6 +437,7 @@ export const TradingProvider = ({ children }) => {
 
       let accessibleRooms = [];
       const cachedRooms = readCachedAccessibleRooms(hydratedUser.id);
+      let roomsFetchFailed = false;
       try {
         accessibleRooms =
           hydratedUser.role === "teacher"
@@ -341,16 +445,18 @@ export const TradingProvider = ({ children }) => {
             : await fetchStudentRooms(hydratedUser.id);
       } catch (error) {
         console.error("fetchAccessibleRooms error", error);
+        roomsFetchFailed = true;
         accessibleRooms = cachedRooms;
       }
 
-      if (accessibleRooms.length === 0 && cachedRooms.length > 0) {
+      if (roomsFetchFailed && accessibleRooms.length === 0 && cachedRooms.length > 0) {
         accessibleRooms = cachedRooms;
       }
 
-      if (accessibleRooms.length > 0) {
-        persistCachedAccessibleRooms(hydratedUser.id, accessibleRooms);
-      }
+      accessibleRooms = accessibleRooms.map((room) => mergeRoomWithSettings(room));
+
+      // Persist the latest server truth (including an empty list) to avoid stale rooms.
+      persistCachedAccessibleRooms(hydratedUser.id, accessibleRooms);
 
       const preferredRoomId =
         localPreferencesExtras?.defaultActiveRoomId &&
@@ -524,7 +630,23 @@ export const TradingProvider = ({ children }) => {
     const initializeAuth = async () => {
       try {
         const session = await restoreSession();
-        const authUser = session?.user ?? null;
+        let authUser = session?.user ?? null;
+
+        if (!authUser) {
+          const isOAuthCallback = hasOAuthCallbackTokensInUrl();
+          const { user: supabaseSessionUser, error: supabaseSessionError } =
+            await getSupabaseSessionUserWithRetries({
+              attempts: isOAuthCallback ? 40 : 1,
+              delayMs: 200,
+            });
+
+          if (supabaseSessionError) {
+            console.error("initializeAuth supabase session error", supabaseSessionError);
+          }
+
+          authUser = supabaseSessionUser;
+        }
+
         const nextUserId = authUser?.id ?? null;
 
         if (isLoggingOutRef.current) {
@@ -560,7 +682,30 @@ export const TradingProvider = ({ children }) => {
         if (isRecoverableError) {
           setConnectionIssue(buildConnectionIssue(error, t));
         }
-        const fallbackAuthUser = null;
+        let fallbackAuthUser = null;
+        try {
+          const isOAuthCallback = hasOAuthCallbackTokensInUrl();
+          let fallbackUserError = null;
+
+          for (let attempt = 0; attempt < (isOAuthCallback ? 20 : 1); attempt += 1) {
+            const { data, error } = await supabase.auth.getUser();
+            fallbackUserError = error;
+            if (data?.user) {
+              fallbackAuthUser = data.user;
+              break;
+            }
+
+            if (attempt < (isOAuthCallback ? 20 : 1) - 1) {
+              await wait(200);
+            }
+          }
+
+          if (fallbackUserError) {
+            console.error("initializeAuth fallback user error", fallbackUserError);
+          }
+        } catch (fallbackError) {
+          console.error("initializeAuth fallback lookup error", fallbackError);
+        }
 
         if (fallbackAuthUser) {
           if (isLoggingOutRef.current) {
@@ -654,7 +799,7 @@ export const TradingProvider = ({ children }) => {
         password: updates.password,
       });
 
-      const portfolioRoomScope = currentUser?.role === "teacher" ? null : activeRoomId;
+      const portfolioRoomScope = activeRoomId || null;
 
       const mergedUser = {
         ...currentUser,
@@ -671,32 +816,139 @@ export const TradingProvider = ({ children }) => {
       delete mergedUser.password;
 
       const persistedUser = await upsertProfile(mergedUser);
+      let nextRoomBalance = null;
+      let updatedRoomBalance = null;
+
+      if (activeRoomId && typeof updates.balance === "number") {
+        const roomBalance = await setStudentRoomBalance({
+          roomId: activeRoomId,
+          userId: currentUser.id,
+          availableBalance: updates.balance,
+        });
+
+        updatedRoomBalance = roomBalance;
+        nextRoomBalance = roomBalance.availableBalance;
+
+        setRoomAccounts((previous) => {
+          const isSharedGroupBalance =
+            roomBalance.ownerType === "group" && Boolean(roomBalance.ownerGroupId);
+
+          const hasExistingAccount = previous.some(
+            (account) => account.roomId === activeRoomId && account.userId === currentUser.id
+          );
+
+          const mappedRoomBalance = {
+            id: hasExistingAccount
+              ? previous.find((account) => account.roomId === activeRoomId && account.userId === currentUser.id)?.id
+              : `rm:${activeRoomId}:${currentUser.id}`,
+            roomId: activeRoomId,
+            userId: currentUser.id,
+            availableBalance: roomBalance.availableBalance,
+            blockedBalance: roomBalance.blockedBalance,
+            totalBalance: roomBalance.totalBalance,
+            currency: roomBalance.currency || "USD",
+            state: "active",
+            ownerType: roomBalance.ownerType || "user",
+            ownerGroupId: roomBalance.ownerGroupId || null,
+            isShared: Boolean(roomBalance.isShared),
+            createdAt: null,
+            updatedAt: null,
+          };
+
+          if (hasExistingAccount) {
+            return previous.map((account) =>
+              (() => {
+                if (account.roomId !== activeRoomId) {
+                  return account;
+                }
+
+                if (account.userId === currentUser.id) {
+                  return { ...account, ...mappedRoomBalance };
+                }
+
+                if (isSharedGroupBalance && account.ownerGroupId === roomBalance.ownerGroupId) {
+                  return {
+                    ...account,
+                    availableBalance: roomBalance.availableBalance,
+                    blockedBalance: roomBalance.blockedBalance,
+                    totalBalance: roomBalance.totalBalance,
+                    currency: roomBalance.currency || account.currency || "USD",
+                    state: "active",
+                    ownerType: roomBalance.ownerType || account.ownerType || "group",
+                    ownerGroupId: roomBalance.ownerGroupId || account.ownerGroupId || null,
+                    isShared: Boolean(roomBalance.isShared),
+                    updatedAt: null,
+                  };
+                }
+
+                return account;
+              })()
+            );
+          }
+
+          return [...previous, mappedRoomBalance];
+        });
+      }
+
+      const resolvedUserBalance = activeRoomId
+        ? (typeof nextRoomBalance === "number" ? nextRoomBalance : currentUser?.balance ?? 0)
+        : (typeof updates.balance === "number" ? updates.balance : currentUser?.balance ?? 0);
+
       let hydratedUser = {
         ...persistedUser,
         ...localProfileExtras,
         positions: updates.positions ?? currentUser.positions ?? [],
         transactions: updates.transactions ?? currentUser.transactions ?? [],
-        balance: activeRoomId ? currentUser.balance : persistedUser.balance,
+        balance: resolvedUserBalance,
+        initialBalance: currentUser?.initialBalance ?? persistedUser?.initialBalance ?? resolvedUserBalance,
         createdAt: persistedUser.createdAt || currentUser.createdAt || "",
         lastLoginAt: currentUser.lastLoginAt || persistedUser.updatedAt || "",
       };
 
       await syncPortfolio(hydratedUser.id, hydratedUser.positions, hydratedUser.transactions, portfolioRoomScope);
 
-      if (currentUser?.role !== "teacher" && activeRoomId && typeof updates.balance === "number") {
-        const roomBalance = await setStudentRoomBalance({
-          roomId: activeRoomId,
-          userId: hydratedUser.id,
-          availableBalance: updates.balance,
-        });
+      if (
+        activeRoomId &&
+        updatedRoomBalance?.ownerType === "group" &&
+        updatedRoomBalance?.ownerGroupId
+      ) {
+        const groupMemberIds = [
+          ...new Set(
+            roomAccounts
+              .filter(
+                (account) =>
+                  account.roomId === activeRoomId &&
+                  account.ownerGroupId === updatedRoomBalance.ownerGroupId
+              )
+              .map((account) => account.userId)
+              .filter(Boolean)
+          ),
+        ];
 
-        setRoomAccounts((previous) =>
-          previous.map((account) =>
-            account.roomId === activeRoomId && account.userId === hydratedUser.id
-              ? { ...account, ...roomBalance }
-              : account
-          )
-        );
+        const otherGroupMemberIds = groupMemberIds.filter((memberId) => memberId !== hydratedUser.id);
+
+        if (otherGroupMemberIds.length > 0) {
+          await Promise.all(
+            otherGroupMemberIds.map((memberId) =>
+              syncPortfolio(memberId, hydratedUser.positions, hydratedUser.transactions, portfolioRoomScope)
+            )
+          );
+        }
+
+        if (groupMemberIds.length > 0) {
+          setRoomPortfolios((previous) => ({
+            ...previous,
+            ...Object.fromEntries(
+              groupMemberIds.map((memberId) => [
+                memberId,
+                {
+                  positions: hydratedUser.positions,
+                  transactions: hydratedUser.transactions,
+                },
+              ])
+            ),
+          }));
+        }
       }
 
       const accessibleProfiles = await fetchAccessibleProfiles(persistedUser);
@@ -722,7 +974,7 @@ export const TradingProvider = ({ children }) => {
         })
       );
 
-      if (hydratedUser.role !== "teacher" && activeRoomId) {
+      if (activeRoomId) {
         try {
           const currentRoomPortfolio = await fetchPortfolio(hydratedUser.id, activeRoomId);
           hydratedUser = {
@@ -748,12 +1000,13 @@ export const TradingProvider = ({ children }) => {
 
       return hydratedUser;
     },
-    [activeRoomId, currentUser, setAllUsers]
+    [activeRoomId, currentUser, roomAccounts, setAllUsers]
   );
 
   const {
     changePassword,
     login,
+    loginWithGoogle,
     logout,
     logoutAllDevices,
     refreshSecuritySessions,
@@ -796,19 +1049,113 @@ export const TradingProvider = ({ children }) => {
   }, [symbolTemplates, getCurrentPrice, calculateChange, t]);
 
   const activeRoom = rooms.find((room) => room.id === activeRoomId) || null;
+  const roomUserIdCandidates = useMemo(() => {
+    const rawCandidates = [authenticatedUserId, currentUser?.id, currentUserId];
+    const seen = new Set();
 
-  const activeRoomAccount = currentUser?.role === "teacher"
-    ? null
-    : roomAccounts.find((account) => account.userId === currentUser?.id && account.roomId === activeRoomId) || null;
+    return rawCandidates
+      .map((candidate) => String(candidate || "").trim())
+      .filter((candidate) => {
+        if (!candidate || seen.has(candidate)) {
+          return false;
+        }
+
+        seen.add(candidate);
+        return true;
+      });
+  }, [authenticatedUserId, currentUser?.id, currentUserId]);
+  const effectiveRoomUserId = roomUserIdCandidates[0] || null;
+  const effectiveRoomMutationUserId = authenticatedUserId || null;
+  const matchesRoomUserCandidate = useCallback(
+    (candidateUserId) => roomUserIdCandidates.includes(String(candidateUserId || "").trim()),
+    [roomUserIdCandidates]
+  );
+  const canMutateActiveRoomMembership = Boolean(
+    effectiveRoomMutationUserId &&
+      activeRoom?.createdBy &&
+      activeRoom.createdBy === effectiveRoomMutationUserId
+  );
+  const directActiveRoomAccount = resolveUserRoomAccount({
+    roomId: activeRoomId,
+    userId: effectiveRoomUserId,
+    userIds: roomUserIdCandidates,
+    roomAccounts,
+    roomMembers,
+  });
+  const studentSingleAccountFallback = useMemo(() => {
+    if (!activeRoomId || currentUser?.role !== "student") {
+      return null;
+    }
+
+    const activeAccountsInRoom = (roomAccounts || []).filter((account) => {
+      if (account?.roomId !== activeRoomId) {
+        return false;
+      }
+
+      const state = String(account?.state || "active").toLowerCase();
+      return state === "active";
+    });
+
+    if (activeAccountsInRoom.length === 1) {
+      return activeAccountsInRoom[0];
+    }
+
+    const activeMembersInRoom = (roomMembers || []).filter((member) => {
+      if (member?.roomId !== activeRoomId) {
+        return false;
+      }
+
+      const state = String(member?.state || "active").toLowerCase();
+      return state === "active";
+    });
+
+    if (activeMembersInRoom.length !== 1) {
+      return null;
+    }
+
+    const onlyMember = activeMembersInRoom[0];
+    const availableBalance = Number(onlyMember?.individualAvailableBalance ?? 0);
+    const blockedBalance = Number(onlyMember?.individualBlockedBalance ?? 0);
+    const totalBalance = Number(
+      onlyMember?.individualTotalBalance ??
+        availableBalance + blockedBalance
+    );
+
+    return {
+      id: onlyMember?.id ? `rm:${onlyMember.id}` : `rm:${activeRoomId}:single`,
+      roomId: activeRoomId,
+      userId: onlyMember?.userId || effectiveRoomUserId || null,
+      availableBalance: Number.isFinite(availableBalance) ? availableBalance : 0,
+      blockedBalance: Number.isFinite(blockedBalance) ? blockedBalance : 0,
+      totalBalance: Number.isFinite(totalBalance) ? totalBalance : 0,
+      currency: onlyMember?.individualCurrency || activeRoom?.defaultCurrency || "USD",
+      state: "active",
+      ownerType: "user",
+      ownerGroupId: null,
+      isShared: false,
+      createdAt: onlyMember?.joinedAt || null,
+      updatedAt: null,
+    };
+  }, [
+    activeRoom?.defaultCurrency,
+    activeRoomId,
+    currentUser?.role,
+    effectiveRoomUserId,
+    roomAccounts,
+    roomMembers,
+  ]);
+  const activeRoomAccount = directActiveRoomAccount || studentSingleAccountFallback;
+
+  const resolvedContextBalance = activeRoomId
+    ? activeRoomAccount?.availableBalance ?? 0
+    : currentUser?.balance ?? 0;
 
   const { openPosition, closePosition } = usePortfolioManager({
     currentUser,
     updateUser,
     toast,
     activeRoom,
-    currentBalance: currentUser?.role === "teacher"
-      ? currentUser?.balance ?? 0
-      : activeRoomAccount?.availableBalance ?? currentUser?.balance ?? 0,
+    currentBalance: resolvedContextBalance,
   });
 
   const studentsInClass =
@@ -817,7 +1164,12 @@ export const TradingProvider = ({ children }) => {
           .filter((member) => member.roleInRoom === "student")
           .map((member) => {
             const relatedPortfolio = roomPortfolios[member.userId];
-            const relatedAccount = roomAccounts.find((account) => account.userId === member.userId);
+            const relatedAccount = resolveUserRoomAccount({
+              roomId: activeRoomId,
+              userId: member.userId,
+              roomAccounts,
+              roomMembers,
+            });
 
             return {
               ...(member.profile || {}),
@@ -829,6 +1181,55 @@ export const TradingProvider = ({ children }) => {
           })
       : [];
 
+  const seedMissingRoomMemberBalances = useCallback(
+    async ({ roomId, members, accounts, defaultBalance, defaultCurrency, canMutate = false }) => {
+      const numericDefaultBalance = Number(defaultBalance ?? 0);
+      if (!roomId || !Number.isFinite(numericDefaultBalance) || numericDefaultBalance <= 0) {
+        return accounts;
+      }
+
+      if (!canMutate) {
+        return accounts;
+      }
+
+      if (!Array.isArray(members) || members.length === 0) {
+        return accounts;
+      }
+
+      const accountByUserId = new Map((accounts || []).map((account) => [account.userId, account]));
+      const membersNeedingSeed = members.filter((member) => {
+        const account = accountByUserId.get(member.userId);
+        if (!account) {
+          return true;
+        }
+
+        const available = Number(account.availableBalance ?? 0);
+        const blocked = Number(account.blockedBalance ?? 0);
+        const total = Number(account.totalBalance ?? 0);
+
+        return available <= 0 && blocked <= 0 && total <= 0;
+      });
+
+      if (membersNeedingSeed.length === 0) {
+        return accounts;
+      }
+
+      await Promise.allSettled(
+        membersNeedingSeed.map((member) =>
+          ensureRoomMemberTradingFields({
+            roomId,
+            userId: member.userId,
+            defaultBalance: numericDefaultBalance,
+            defaultCurrency: defaultCurrency || "USD",
+          })
+        )
+      );
+
+      return fetchRoomSimAccounts(roomId);
+    },
+    []
+  );
+
   const isAuthenticated = Boolean(currentUserId);
 
   const refreshActiveRoomData = useCallback(async () => {
@@ -838,25 +1239,82 @@ export const TradingProvider = ({ children }) => {
       setRoomPortfolios({});
       return;
     }
-    const [nextMembers, nextAccounts] = await Promise.all([
+
+    if (canMutateActiveRoomMembership) {
+      const currentRoom = rooms.find((room) => room.id === activeRoomId) || null;
+      try {
+        await ensureRoomMemberTradingFields({
+          roomId: activeRoomId,
+          userId: effectiveRoomMutationUserId,
+          defaultBalance: Number(currentRoom?.defaultBalance ?? 0),
+          defaultCurrency: currentRoom?.defaultCurrency || "USD",
+          createIfMissingRole: "teacher",
+        });
+      } catch (error) {
+        console.warn("refreshActiveRoomData ensureRoomMemberTradingFields warning", error);
+      }
+    }
+
+    let [nextMembers, nextAccounts] = await Promise.all([
       fetchRoomMembers(activeRoomId),
       fetchRoomSimAccounts(activeRoomId),
     ]);
+    let hydratedAccounts = nextAccounts;
+    const currentRoom = rooms.find((room) => room.id === activeRoomId) || null;
+    try {
+      hydratedAccounts = await seedMissingRoomMemberBalances({
+        roomId: activeRoomId,
+        members: nextMembers,
+        accounts: nextAccounts,
+        defaultBalance: Number(currentRoom?.defaultBalance ?? 0),
+        defaultCurrency: currentRoom?.defaultCurrency || "USD",
+        canMutate: canMutateActiveRoomMembership,
+      });
+    } catch (error) {
+      console.warn("refreshActiveRoomData seedMissingRoomMemberBalances warning", error);
+    }
+    if (
+      canMutateActiveRoomMembership &&
+      !hydratedAccounts.some((account) => account.userId === effectiveRoomMutationUserId)
+    ) {
+      try {
+        await ensureRoomMemberTradingFields({
+          roomId: activeRoomId,
+          userId: effectiveRoomMutationUserId,
+          defaultBalance: Number(currentRoom?.defaultBalance ?? 0),
+          defaultCurrency: currentRoom?.defaultCurrency || "USD",
+          createIfMissingRole: "teacher",
+        });
+        [nextMembers, hydratedAccounts] = await Promise.all([
+          fetchRoomMembers(activeRoomId),
+          fetchRoomSimAccounts(activeRoomId),
+        ]);
+      } catch (error) {
+        console.warn("refreshActiveRoomData rehydrateCurrentAccount warning", error);
+      }
+    }
     const memberPortfolios = await Promise.all(
       nextMembers
         .filter((member) => member.roleInRoom === "student")
         .map(async (member) => [member.userId, await fetchPortfolio(member.userId, activeRoomId)])
     );
     setRoomMembers(nextMembers);
-    setRoomAccounts(nextAccounts);
+    setRoomAccounts(hydratedAccounts);
     setRoomPortfolios(Object.fromEntries(memberPortfolios));
-    if (currentUser?.id && currentUser?.role !== "teacher") {
+    if (effectiveRoomUserId) {
       try {
-        const nextPortfolio = await fetchPortfolio(currentUser.id, activeRoomId);
+        const nextPortfolio = await fetchPortfolio(effectiveRoomUserId, activeRoomId);
+        const matchedAccount = hydratedAccounts.find((account) => matchesRoomUserCandidate(account.userId));
+        const currentAccount =
+          matchedAccount ||
+          (currentUser?.role === "student" && hydratedAccounts.length === 1
+            ? hydratedAccounts[0]
+            : null);
         setCurrentUser((previous) =>
           previous
             ? {
                 ...previous,
+                balance: currentAccount?.availableBalance ?? previous.balance ?? 0,
                 positions: nextPortfolio.positions,
                 transactions: nextPortfolio.transactions,
               }
@@ -866,7 +1324,26 @@ export const TradingProvider = ({ children }) => {
         console.error("refreshCurrentStudentPortfolio error", error);
       }
     }
-  }, [activeRoomId, currentUser?.id, currentUser?.role]);
+  }, [
+    activeRoomId,
+    canMutateActiveRoomMembership,
+    currentUser?.role,
+    effectiveRoomMutationUserId,
+    effectiveRoomUserId,
+    rooms,
+    matchesRoomUserCandidate,
+    seedMissingRoomMemberBalances,
+  ]);
+
+  useEffect(() => {
+    if (!activeRoomId || !effectiveRoomUserId) {
+      return;
+    }
+
+    void refreshActiveRoomData().catch((error) => {
+      console.error("refreshActiveRoomData effect error", error);
+    });
+  }, [activeRoomId, effectiveRoomUserId, refreshActiveRoomData]);
 
   const refreshRoomsData = useCallback(async () => {
     if (!currentUser?.id) {
@@ -879,6 +1356,7 @@ export const TradingProvider = ({ children }) => {
 
     let accessibleRooms = [];
     const cachedRooms = readCachedAccessibleRooms(currentUser.id);
+    let roomsFetchFailed = false;
     try {
       accessibleRooms =
         currentUser.role === "teacher"
@@ -886,17 +1364,19 @@ export const TradingProvider = ({ children }) => {
           : await fetchStudentRooms(currentUser.id);
     } catch (error) {
       console.error("refreshRoomsData fetch error", error);
+      roomsFetchFailed = true;
       accessibleRooms = cachedRooms;
     }
 
-    if (accessibleRooms.length === 0 && cachedRooms.length > 0) {
+    if (roomsFetchFailed && accessibleRooms.length === 0 && cachedRooms.length > 0) {
       accessibleRooms = cachedRooms;
     }
+
+    accessibleRooms = accessibleRooms.map((room) => mergeRoomWithSettings(room));
 
     setRooms(accessibleRooms);
-    if (accessibleRooms.length > 0) {
-      persistCachedAccessibleRooms(currentUser.id, accessibleRooms);
-    }
+    // Persist the latest server truth (including an empty list) to avoid stale rooms.
+    persistCachedAccessibleRooms(currentUser.id, accessibleRooms);
 
     const preferredRoomId =
       preferencesState?.defaultActiveRoomId &&
@@ -936,8 +1416,23 @@ export const TradingProvider = ({ children }) => {
 
   const selectRoom = useCallback(
     async (roomId) => {
-      if (roomId && !rooms.find((room) => room.id === roomId)) {
-        throw new Error("Selected class is not accessible for the current user");
+      if (roomId) {
+        const isRoomInState = rooms.some((room) => room.id === roomId);
+        const isRoomInCache =
+          currentUser?.id &&
+          readCachedAccessibleRooms(currentUser.id).some((room) => room.id === roomId);
+
+        if (!isRoomInState && !isRoomInCache) {
+          const refreshedRooms = await refreshRoomsData().catch((error) => {
+            console.warn("selectRoom refreshRoomsData warning", error);
+            return [];
+          });
+          const isRoomInRefreshedData = refreshedRooms.some((room) => room.id === roomId);
+
+          if (!isRoomInRefreshedData) {
+            throw new Error("Selected class is not accessible for the current user");
+          }
+        }
       }
 
       setActiveRoomId(roomId);
@@ -950,23 +1445,97 @@ export const TradingProvider = ({ children }) => {
       }
 
       try {
-        const [nextMembers, nextAccounts] = await Promise.all([
+        const selectedRoom =
+          (currentUser?.id &&
+            (rooms.find((room) => room.id === roomId) ||
+              readCachedAccessibleRooms(currentUser.id).find((room) => room.id === roomId))) ||
+          rooms.find((room) => room.id === roomId) ||
+          null;
+        const canMutateSelectedRoomMembership = Boolean(
+          effectiveRoomMutationUserId &&
+            selectedRoom?.createdBy &&
+            selectedRoom.createdBy === effectiveRoomMutationUserId
+        );
+
+        if (canMutateSelectedRoomMembership) {
+          try {
+            await ensureRoomMemberTradingFields({
+              roomId,
+              userId: effectiveRoomMutationUserId,
+              defaultBalance: Number(selectedRoom?.defaultBalance ?? 0),
+              defaultCurrency: selectedRoom?.defaultCurrency || "USD",
+              createIfMissingRole: "teacher",
+            });
+          } catch (error) {
+            console.warn("selectRoom ensureRoomMemberTradingFields warning", error);
+          }
+        }
+
+        let [nextMembers, nextAccounts] = await Promise.all([
           fetchRoomMembers(roomId),
           fetchRoomSimAccounts(roomId),
         ]);
+        let hydratedAccounts = nextAccounts;
+        try {
+          hydratedAccounts = await seedMissingRoomMemberBalances({
+            roomId,
+            members: nextMembers,
+            accounts: nextAccounts,
+            defaultBalance: Number(selectedRoom?.defaultBalance ?? 0),
+            defaultCurrency: selectedRoom?.defaultCurrency || "USD",
+            canMutate: canMutateSelectedRoomMembership,
+          });
+        } catch (error) {
+          console.warn("selectRoom seedMissingRoomMemberBalances warning", error);
+        }
+        if (
+          canMutateSelectedRoomMembership &&
+          !hydratedAccounts.some((account) => account.userId === effectiveRoomMutationUserId)
+        ) {
+          try {
+            await ensureRoomMemberTradingFields({
+              roomId,
+              userId: effectiveRoomMutationUserId,
+              defaultBalance: Number(selectedRoom?.defaultBalance ?? 0),
+              defaultCurrency: selectedRoom?.defaultCurrency || "USD",
+              createIfMissingRole: "teacher",
+            });
+            [nextMembers, hydratedAccounts] = await Promise.all([
+              fetchRoomMembers(roomId),
+              fetchRoomSimAccounts(roomId),
+            ]);
+          } catch (error) {
+            console.warn("selectRoom rehydrateCurrentAccount warning", error);
+          }
+        }
         const memberPortfolios = await Promise.all(
           nextMembers
             .filter((member) => member.roleInRoom === "student")
             .map(async (member) => [member.userId, await fetchPortfolio(member.userId, roomId)])
         );
         setRoomMembers(nextMembers);
-        setRoomAccounts(nextAccounts);
+        setRoomAccounts(hydratedAccounts);
         setRoomPortfolios(Object.fromEntries(memberPortfolios));
 
-        if (currentUser?.id && currentUser?.role !== "teacher") {
+        if (effectiveRoomUserId) {
           try {
-            const nextPortfolio = await fetchPortfolio(currentUser.id, roomId);
-            setCurrentUser((previous) => previous ? { ...previous, positions: nextPortfolio.positions, transactions: nextPortfolio.transactions } : previous);
+            const nextPortfolio = await fetchPortfolio(effectiveRoomUserId, roomId);
+            const matchedAccount = hydratedAccounts.find((account) => matchesRoomUserCandidate(account.userId));
+            const currentAccount =
+              matchedAccount ||
+              (currentUser?.role === "student" && hydratedAccounts.length === 1
+                ? hydratedAccounts[0]
+                : null);
+            setCurrentUser((previous) =>
+              previous
+                ? {
+                    ...previous,
+                    balance: currentAccount?.availableBalance ?? previous.balance ?? 0,
+                    positions: nextPortfolio.positions,
+                    transactions: nextPortfolio.transactions,
+                  }
+                : previous
+            );
           } catch (error) {
             console.error("selectRoomPortfolio error", error);
           }
@@ -975,7 +1544,17 @@ export const TradingProvider = ({ children }) => {
         console.error("selectRoom error", error);
       }
     },
-    [currentUser?.id, currentUser?.role, rooms, setActiveRoomId]
+    [
+      currentUser?.id,
+      currentUser?.role,
+      effectiveRoomMutationUserId,
+      effectiveRoomUserId,
+      matchesRoomUserCandidate,
+      refreshRoomsData,
+      rooms,
+      seedMissingRoomMemberBalances,
+      setActiveRoomId,
+    ]
   );
 
   const adjustStudentBalance = useCallback(
@@ -1091,29 +1670,47 @@ export const TradingProvider = ({ children }) => {
   );
 
   const joinRoomWithCode = useCallback(
-    async (accessCode) => {
+    async (accessCodeOrPayload) => {
       if (!currentUser?.id) {
         throw new Error("No authenticated user");
       }
+
+      const accessCode =
+        typeof accessCodeOrPayload === "string"
+          ? accessCodeOrPayload
+          : accessCodeOrPayload?.accessCode;
 
       const joinedRoom = await joinRoomByCode({
         userId: currentUser.id,
         accessCode,
       });
+      const hydratedJoinedRoom = mergeRoomWithSettings(joinedRoom);
 
       persistCachedAccessibleRooms(currentUser.id, [
-        joinedRoom,
-        ...readCachedAccessibleRooms(currentUser.id).filter((room) => room.id !== joinedRoom.id),
+        hydratedJoinedRoom,
+        ...readCachedAccessibleRooms(currentUser.id).filter((room) => room.id !== hydratedJoinedRoom.id),
       ]);
       await refreshRoomsData();
-      await selectRoom(joinedRoom.id);
-      return joinedRoom;
+      try {
+        await selectRoom(hydratedJoinedRoom.id);
+      } catch (selectionError) {
+        console.warn("joinRoomWithCode selectRoom warning", selectionError);
+      }
+      return hydratedJoinedRoom;
     },
     [currentUser?.id, refreshRoomsData, selectRoom]
   );
 
   const createRoomForUser = useCallback(
-    async ({ name, description, defaultBalance, defaultCurrency }) => {
+    async ({
+      name,
+      description,
+      defaultBalance,
+      defaultCurrency,
+      startDate,
+      endDate,
+      roomSettings,
+    }) => {
       if (!currentUser?.id) {
         throw new Error("No authenticated user");
       }
@@ -1124,17 +1721,52 @@ export const TradingProvider = ({ children }) => {
         description,
         defaultBalance,
         defaultCurrency,
+        startDate,
+        endDate,
+        roomSettings,
+      });
+      if (effectiveRoomMutationUserId) {
+        try {
+          await ensureRoomMemberTradingFields({
+            roomId: newRoom.id,
+            userId: effectiveRoomMutationUserId,
+            defaultBalance: Number(newRoom.default_balance ?? newRoom.defaultBalance ?? defaultBalance ?? 0),
+            defaultCurrency: newRoom.default_currency ?? newRoom.defaultCurrency ?? defaultCurrency ?? "USD",
+            createIfMissingRole: "teacher",
+          });
+        } catch (error) {
+          console.warn("createRoomForUser ensureRoomMemberTradingFields warning", error);
+        }
+      }
+      const persistedSettings = persistRoomSettings(newRoom.id, {
+        ...roomSettings,
+        operationStartDate: roomSettings?.operationStartDate || startDate || null,
+        operationCloseDate: roomSettings?.operationCloseDate || endDate || null,
+      });
+      const hydratedRoom = mergeRoomWithSettings({
+        ...newRoom,
+        ...persistedSettings,
       });
 
       persistCachedAccessibleRooms(currentUser.id, [
-        newRoom,
-        ...readCachedAccessibleRooms(currentUser.id).filter((room) => room.id !== newRoom.id),
+        hydratedRoom,
+        ...readCachedAccessibleRooms(currentUser.id).filter((room) => room.id !== hydratedRoom.id),
       ]);
-      await refreshRoomsData();
-      await selectRoom(newRoom.id);
-      return newRoom;
+      const refreshedRooms = await refreshRoomsData();
+      if (!refreshedRooms.some((room) => room.id === hydratedRoom.id)) {
+        setRooms((previousRooms) => [
+          hydratedRoom,
+          ...previousRooms.filter((room) => room.id !== hydratedRoom.id),
+        ]);
+        persistCachedAccessibleRooms(currentUser.id, [
+          hydratedRoom,
+          ...readCachedAccessibleRooms(currentUser.id).filter((room) => room.id !== hydratedRoom.id),
+        ]);
+      }
+      await selectRoom(hydratedRoom.id);
+      return hydratedRoom;
     },
-    [currentUser?.id, refreshRoomsData, selectRoom]
+    [currentUser?.id, effectiveRoomMutationUserId, refreshRoomsData, selectRoom]
   );
 
   const leaveCurrentUserRoom = useCallback(
@@ -1148,16 +1780,33 @@ export const TradingProvider = ({ children }) => {
         userId: currentUser.id,
       });
 
+      const nextAccessibleRooms = [
+        ...readCachedAccessibleRooms(currentUser.id).filter((cachedRoom) => cachedRoom.id !== room.id),
+      ];
+      persistCachedAccessibleRooms(currentUser.id, nextAccessibleRooms);
+      setRooms((previousRooms) => previousRooms.filter((existingRoom) => existingRoom.id !== room.id));
+
+      if (activeRoomId === room.id) {
+        setActiveRoomId(null);
+        setRoomMembers([]);
+        setRoomAccounts([]);
+        setRoomPortfolios({});
+      }
+
       const nextRoomState = appendClientRoomHistory(currentUser.id, room, {
         membershipRole: room.membershipRole,
         membershipState: "left",
         state: room.state || "archived",
       });
       setRoomState(nextRoomState);
-      await refreshRoomsData();
+
+      await refreshRoomsData().catch((refreshError) => {
+        console.warn("leaveCurrentUserRoom refreshRoomsData warning", refreshError);
+      });
+
       return true;
     },
-    [currentUser?.id, refreshRoomsData]
+    [activeRoomId, currentUser?.id, refreshRoomsData, setActiveRoomId]
   );
 
   const updateManagedRoomState = useCallback(
@@ -1169,9 +1818,21 @@ export const TradingProvider = ({ children }) => {
     [refreshRoomsData]
   );
 
+  const deleteManagedRoom = useCallback(
+    async (roomId) => {
+      await deleteRoom(roomId);
+      await refreshRoomsData();
+      return true;
+    },
+    [refreshRoomsData]
+  );
+
   const updateManagedRoomDetails = useCallback(
     async (payload) => {
       const nextRoom = await updateRoomDetails(payload);
+      if (payload?.roomId && payload?.roomSettings) {
+        persistRoomSettings(payload.roomId, payload.roomSettings);
+      }
       await refreshRoomsData();
 
       if (payload?.roomId === activeRoomId) {
@@ -1198,9 +1859,8 @@ export const TradingProvider = ({ children }) => {
 
   const value = {
     user: currentUser,
-    balance: currentUser?.role === "teacher"
-      ? currentUser?.balance ?? 0
-      : activeRoomAccount?.availableBalance ?? currentUser?.balance ?? 0,
+    authenticatedUserId,
+    balance: resolvedContextBalance,
     positions: currentUser?.positions || [],
     transactions: currentUser?.transactions || [],
     allUsers,
@@ -1208,6 +1868,7 @@ export const TradingProvider = ({ children }) => {
     rooms,
     activeRoom,
     activeRoomId,
+    activeRoomAccount,
     roomMembers,
     roomAccounts,
     roomPortfolios,
@@ -1228,6 +1889,7 @@ export const TradingProvider = ({ children }) => {
     roomState,
     isMarketLoading: isLoadingMarket,
     login,
+    loginWithGoogle,
     logout,
     logoutAllDevices,
     changePassword,
@@ -1256,6 +1918,7 @@ export const TradingProvider = ({ children }) => {
     joinRoomWithCode,
     createRoomForUser,
     leaveCurrentUserRoom,
+    deleteManagedRoom,
     updateManagedRoomState,
     updateManagedRoomDetails,
     getRoomHistory,

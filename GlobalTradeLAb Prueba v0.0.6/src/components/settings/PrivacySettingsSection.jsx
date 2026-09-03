@@ -26,7 +26,7 @@ const SelectRow = ({ icon: Icon, title, description, value, onChange, options })
       {Icon ? <Icon className="h-4 w-4 text-primary" /> : null}
       <p className="text-sm font-semibold">{title}</p>
     </div>
-    <p className="mb-3 text-sm text-muted-foreground">{description}</p>
+    <p className="settings-context-help mb-3 text-sm text-muted-foreground">{description}</p>
     <select value={value} onChange={(event) => onChange(event.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
       {options.map((option) => (
         <option key={option.value} value={option.value}>
@@ -41,7 +41,7 @@ const ToggleRow = ({ title, description, checked, onChange }) => (
   <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/50 p-4 md:flex-row md:items-center md:justify-between">
     <div className="space-y-1">
       <p className="text-sm font-semibold">{title}</p>
-      <p className="text-sm text-muted-foreground">{description}</p>
+      <p className="settings-context-help text-sm text-muted-foreground">{description}</p>
     </div>
     <button
       type="button"
@@ -186,7 +186,7 @@ const PrivacySettingsSection = () => {
             </span>
             {t("settings.privacy.title")}
           </CardTitle>
-          <CardDescription>{t("settings.privacy.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("settings.privacy.description")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4 pt-6">
@@ -220,7 +220,7 @@ const PrivacySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.privacy.visibilityTitle")}</CardTitle>
-            <CardDescription>{t("settings.privacy.visibilityDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.privacy.visibilityDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <SelectRow icon={Eye} title={t("settings.privacy.rows.profile.title")} description={t("settings.privacy.rows.profile.description")} value={state.profileVisibility} onChange={(value) => savePrivacy({ profileVisibility: value }, t("settings.privacy.profileVisibility"))} options={visibilityOptions} />
@@ -235,7 +235,7 @@ const PrivacySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.privacy.rankingsTitle")}</CardTitle>
-            <CardDescription>{t("settings.privacy.rankingsDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.privacy.rankingsDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <ToggleRow title={t("settings.privacy.toggles.rankings.title")} description={t("settings.privacy.toggles.rankings.description")} checked={Boolean(state.appearInRankings)} onChange={(value) => savePrivacy({ appearInRankings: value }, t("settings.privacy.toggles.rankings.title"))} />
@@ -252,7 +252,7 @@ const PrivacySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.privacy.personalDataTitle")}</CardTitle>
-            <CardDescription>{t("settings.privacy.personalDataDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.privacy.personalDataDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-border/70 bg-background/50 p-5">
@@ -260,7 +260,7 @@ const PrivacySettingsSection = () => {
                 <Download className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.privacy.cards.downloadTitle")}</p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.privacy.cards.downloadDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.privacy.cards.downloadDescription")}</p>
               <Button className="mt-4" onClick={downloadData}>
                 <Download className="mr-2 h-4 w-4" />
                 {t("settings.privacy.downloadData")}
@@ -272,7 +272,7 @@ const PrivacySettingsSection = () => {
                 <FileWarning className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.privacy.cards.deleteTitle")}</p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.privacy.cards.deleteDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.privacy.cards.deleteDescription")}</p>
               <Button className="mt-4" variant="outline" onClick={requestDataDeletion}>
                 <FileWarning className="mr-2 h-4 w-4" />
                 {t("settings.privacy.deleteData")}
@@ -284,7 +284,7 @@ const PrivacySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.privacy.exposureTitle")}</CardTitle>
-            <CardDescription>{t("settings.privacy.exposureDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.privacy.exposureDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
@@ -313,3 +313,4 @@ const PrivacySettingsSection = () => {
 };
 
 export default PrivacySettingsSection;
+

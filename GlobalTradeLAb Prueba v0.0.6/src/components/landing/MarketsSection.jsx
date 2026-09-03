@@ -1,8 +1,14 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Landmark } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { getLastCandleMarketFromBackend } from "@/lib/backend-market";
 import { formatCurrency, formatPercentage } from "@/lib/market-data";
+import { supabase } from "@/lib/supabase";
+import {
+  mapSnapshotRowsToSymbols,
+  SNAPSHOT_REFRESH_INTERVAL_MS,
+} from "@/lib/market-snapshot";
 import { resolvePreferredHomePage } from "@/lib/routes";
 import { useTradingContext } from "@/contexts/TradingContext";
 import { getMarketItems, getMarketTypeLabels } from "./landingData";
@@ -10,14 +16,82 @@ import { getMarketItems, getMarketTypeLabels } from "./landingData";
 export const MarketsSection = () => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { isAuthenticated, user, preferencesState, symbols, setSelectedSymbol } = useTradingContext();
+  const { isAuthenticated, user, preferencesState, setSelectedSymbol } = useTradingContext();
+  const [snapshotRows, setSnapshotRows] = useState([]);
   const [page, setPage] = useState(1);
   const marketItems = useMemo(() => getMarketItems(t), [t, i18n.resolvedLanguage]);
   const marketTypeLabels = useMemo(() => getMarketTypeLabels(t), [t, i18n.resolvedLanguage]);
-  const marketTableRows = useMemo(() => symbols || [], [symbols]);
+  const marketTableRows = useMemo(() => mapSnapshotRowsToSymbols(snapshotRows, t), [snapshotRows, t]);
+  const getMarketStatusLabel = useCallback(
+    (status) => {
+      if (status === "open") {
+        return t("marketSearch.marketStatus.open", { defaultValue: "Abierto" });
+      }
+      if (status === "closed") {
+        return t("marketSearch.marketStatus.closed", { defaultValue: "Cerrado" });
+      }
+
+      return t("marketSearch.marketStatus.unknown", { defaultValue: "N/D" });
+    },
+    [t]
+  );
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(marketTableRows.length / pageSize));
   const visibleRows = marketTableRows.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    let isMounted = true;
+    let isRefreshing = false;
+
+    const loadSnapshotRows = async () => {
+      if (isRefreshing) {
+        return;
+      }
+
+      isRefreshing = true;
+      try {
+        const rows = await getLastCandleMarketFromBackend({ limit: 500 });
+        if (!isMounted) {
+          return;
+        }
+        setSnapshotRows(rows);
+      } catch (error) {
+        console.error("loadMarketsSectionSnapshot error", error);
+        if (isMounted) {
+          setSnapshotRows([]);
+        }
+      } finally {
+        isRefreshing = false;
+      }
+    };
+
+    void loadSnapshotRows();
+    const interval = window.setInterval(loadSnapshotRows, SNAPSHOT_REFRESH_INTERVAL_MS);
+    const channel = supabase
+      .channel("landing-markets-last-candle")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "last_candle_market",
+        },
+        () => {
+          void loadSnapshotRows();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [marketTableRows.length]);
 
   const handleRowClick = (symbolId) => {
     setSelectedSymbol?.(symbolId);
@@ -56,37 +130,43 @@ export const MarketsSection = () => {
         </div>
 
         <div className="market-table mt-6 overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
-          <div className="market-table-head grid grid-cols-[1.15fr_0.9fr_0.9fr_0.8fr_0.75fr] gap-3 border-b px-4 py-4 text-xs uppercase tracking-[0.2em]">
+          <div className="market-table-head grid grid-cols-[1.15fr_0.8fr_0.9fr_0.8fr_0.75fr_0.75fr] gap-3 border-b px-4 py-4 text-xs uppercase tracking-[0.2em]">
             <span>{t("landing.markets.table.columns.asset")}</span>
             <span>{t("landing.markets.table.columns.currency")}</span>
             <span>{t("landing.markets.table.columns.type")}</span>
             <span>{t("landing.markets.table.columns.price")}</span>
             <span>{t("landing.markets.table.columns.change")}</span>
+            <span>{t("marketSearch.columns.marketStatus", { defaultValue: "Mercado" })}</span>
           </div>
 
           <div>
-            {visibleRows.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => handleRowClick(row.id)}
-                className="market-table-row grid w-full grid-cols-[1.15fr_0.9fr_0.9fr_0.8fr_0.75fr] gap-3 border-b border-white/8 px-4 py-4 text-left transition hover:bg-blue-500/10"
-              >
-                <span className="market-table-symbol font-semibold">{row.name || row.id}</span>
-                <span className="market-table-cell">{row.currency || "USD"}</span>
-                <span className="market-table-cell">{marketTypeLabels[row.type] || row.type || t("landing.markets.assetFallback")}</span>
-                <span className="market-table-price">{formatCurrency(row.price || 0, row.currency || "USD")}</span>
-                <span
-                  className={
-                    (row.change || 0) < 0
-                      ? "market-table-change market-table-change-negative"
-                      : "market-table-change market-table-change-positive"
-                  }
+            {visibleRows.length > 0 ? (
+              visibleRows.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => handleRowClick(row.id)}
+                  className="market-table-row grid w-full grid-cols-[1.15fr_0.8fr_0.9fr_0.8fr_0.75fr_0.75fr] gap-3 border-b border-white/8 px-4 py-4 text-left transition hover:bg-blue-500/10"
                 >
-                  {formatPercentage(row.change || 0)}
-                </span>
-              </button>
-            ))}
+                  <span className="market-table-symbol font-semibold">{row.name || row.id}</span>
+                  <span className="market-table-cell">{row.currency || "USD"}</span>
+                  <span className="market-table-cell">{marketTypeLabels[row.type] || row.type || t("landing.markets.assetFallback")}</span>
+                  <span className="market-table-price">{formatCurrency(row.price || 0, row.currency || "USD")}</span>
+                  <span
+                    className={
+                      (row.change || 0) < 0
+                        ? "market-table-change market-table-change-negative"
+                        : "market-table-change market-table-change-positive"
+                    }
+                  >
+                    {formatPercentage(row.change || 0)}
+                  </span>
+                  <span className="market-table-cell">{getMarketStatusLabel(row.marketStatus)}</span>
+                </button>
+              ))
+            ) : (
+              <div className="px-6 py-10 text-sm text-slate-300">{t("marketSearch.empty")}</div>
+            )}
           </div>
         </div>
 

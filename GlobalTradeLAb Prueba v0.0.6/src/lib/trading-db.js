@@ -2,6 +2,8 @@
 import { getBackendUrl } from "@/lib/env";
 import { getAccessToken } from "@/lib/auth-api";
 
+let isBackendLeaveEndpointUnavailable = false;
+
 const profileColumns = `
   user_id,
   email,
@@ -17,8 +19,6 @@ const profileColumns = `
   plan,
   role,
   verified,
-  balance,
-  initial_balance,
   created_at,
   updated_at
 `;
@@ -43,8 +43,6 @@ const mapProfile = (profile) => {
     plan: profile.plan || "Gratis",
     role: profile.role || "student",
     verified: Boolean(profile.verified),
-    balance: Number(profile.balance ?? 0),
-    initialBalance: Number(profile.initial_balance ?? 0),
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
   };
@@ -90,8 +88,6 @@ const toProfileRow = (user) => ({
   plan: user.plan || "Gratis",
   role: user.role || "student",
   verified: Boolean(user.verified),
-  balance: user.balance ?? 0,
-  initial_balance: user.initialBalance ?? user.balance ?? 0,
 });
 
 const toPositionRow = (userId, position, roomId = null) => ({
@@ -266,7 +262,7 @@ export async function updateAuthIdentity(updates) {
 
 
 export async function deleteCurrentAccount() {
-  const accessToken = await getAccessToken().catch(() => null);
+  const accessToken = (await getAccessToken().catch(() => null)) || getCachedSupabaseAccessToken();
 
   if (!accessToken) {
     throw new Error("No authenticated session");
@@ -297,12 +293,33 @@ const mapRoomRecord = (room) => ({
   endDate: room.end_date || null,
   defaultCurrency: room.default_currency || "USD",
   defaultBalance: Number(room.default_balance ?? 0),
+  allowRanking: room.allow_ranking ?? room.allowRanking ?? undefined,
+  allowGrades: room.allow_grades ?? room.allowGrades ?? undefined,
+  portfolioVisibility: room.portfolio_visibility ?? room.portfolioVisibility ?? undefined,
+  coverImageUrl: room.cover_image_url ?? room.coverImageUrl ?? "",
+  allowedMarkets: room.allowed_markets ?? room.allowedMarkets ?? undefined,
+  operationStartDate: room.operation_start_date ?? room.operationStartDate ?? room.start_date ?? null,
+  operationCloseDate: room.operation_close_date ?? room.operationCloseDate ?? room.end_date ?? null,
   createdBy: room.created_by,
   createdAt: room.created_at,
   updatedAt: room.updated_at,
 });
 
-const VALID_ROOM_STATES = new Set(["active", "inactive", "deleted"]);
+const VALID_ROOM_STATES = new Set(["active", "closed", "archived"]);
+
+const normalizeRoomState = (value) => {
+  const normalizedValue = String(value || "active").trim().toLowerCase();
+
+  if (normalizedValue === "inactive") {
+    return "closed";
+  }
+
+  if (normalizedValue === "deleted") {
+    return "archived";
+  }
+
+  return normalizedValue;
+};
 
 const mapRoomActivity = (activity) => ({
   id: activity.id,
@@ -423,7 +440,7 @@ export async function generateRoomCode() {
   return data || buildClientRoomCode();
 }
 export async function fetchTeacherRooms(userId) {
-  const accessToken = await getAccessToken().catch(() => null);
+  const accessToken = (await getAccessToken().catch(() => null)) || getCachedSupabaseAccessToken();
 
   if (accessToken) {
     const response = await fetch(getBackendUrl("/api/rooms/list?role=teacher"), {
@@ -872,6 +889,9 @@ export async function createRoom({
   description,
   defaultBalance = 100000,
   defaultCurrency = "USD",
+  startDate = null,
+  endDate = null,
+  roomSettings = null,
 }) {
   console.info("[createRoom] start", { ownerUserId, name });
 
@@ -896,6 +916,9 @@ export async function createRoom({
         description,
         defaultBalance,
         defaultCurrency,
+        startDate,
+        endDate,
+        roomSettings,
       }),
     }),
     new Promise((_, reject) =>
@@ -915,13 +938,65 @@ export async function createRoom({
 }
 
 export async function joinRoomByCode({ userId, accessCode }) {
-  const normalizedCode = accessCode.trim().toUpperCase();
+  if (typeof accessCode !== "string") {
+    throw new Error("El codigo de la sala no es valido.");
+  }
+
+  const normalizedCode = accessCode.toUpperCase().replace(/[\s-]+/g, "").trim();
+  if (!normalizedCode) {
+    throw new Error("Debes ingresar un codigo de sala.");
+  }
+
+  const backendAccessToken = await getAccessToken().catch(() => null);
+  const supabaseAccessToken = getCachedSupabaseAccessToken();
+
+  if (backendAccessToken) {
+    const response = await fetch(getBackendUrl("/api/rooms/join"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${backendAccessToken}`,
+      },
+      body: JSON.stringify({ accessCode: normalizedCode }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (response.ok && payload?.ok && payload?.room) {
+      if (supabaseAccessToken) {
+        try {
+          await ensureRoomMemberTradingFields({
+            roomId: payload.room.id,
+            userId,
+            defaultBalance: Number(payload.room.default_balance ?? payload.room.defaultBalance ?? 0),
+            defaultCurrency: payload.room.default_currency ?? payload.room.defaultCurrency ?? "USD",
+            createIfMissingRole: "student",
+          });
+        } catch (syncError) {
+          // El alta en sala ya fue completada por backend; esta sincronizacion solo refuerza
+          // campos de balance cuando el cliente tiene sesion valida en Supabase.
+          console.warn("joinRoomByCode ensureRoomMemberTradingFields warning", syncError);
+        }
+      }
+      return payload.room;
+    }
+
+    if (payload?.error && [400, 401, 403, 404, 409].includes(response.status)) {
+      throw new Error(payload.error);
+    }
+  }
+
+  if (!supabaseAccessToken) {
+    throw new Error(
+      "No pudimos validar una sesion de base de datos para unirte a la sala. Cierra sesion y vuelve a iniciar."
+    );
+  }
 
   const { data: room, error: roomError } = await supabase
     .from("rooms")
     .select("*")
     .eq("access_code", normalizedCode)
-    .eq("state", "active")
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (roomError) {
@@ -929,7 +1004,11 @@ export async function joinRoomByCode({ userId, accessCode }) {
   }
 
   if (!room) {
-    throw new Error("No se encontro una sala activa con ese codigo.");
+    throw new Error("No se encontro una sala con ese codigo.");
+  }
+
+  if (room.state !== "active") {
+    throw new Error("La sala existe, pero no esta activa para nuevos ingresos.");
   }
 
   const { error: memberError } = await supabase
@@ -948,72 +1027,166 @@ export async function joinRoomByCode({ userId, accessCode }) {
     throw memberError;
   }
 
-  const { error: accountError } = await supabase
-    .from("student_sim_accounts")
-    .upsert(
-      {
-        room_id: room.id,
-        user_id: userId,
-        available_balance: room.default_balance,
-        blocked_balance: 0,
-        total_balance: room.default_balance,
-        currency: room.default_currency,
-        state: "active",
-      },
-      { onConflict: "room_id,user_id" }
-    );
-
-  if (accountError) {
-    throw accountError;
-  }
+  await ensureRoomMemberTradingFields({
+    roomId: room.id,
+    userId,
+    defaultBalance: Number(room.default_balance ?? 0),
+    defaultCurrency: room.default_currency || "USD",
+    createIfMissingRole: "student",
+  });
 
   return mapRoomRecord(room);
 }
 
 export async function leaveRoom({ roomId, userId }) {
-  const { error: membershipError } = await supabase
-    .from("room_members")
-    .delete()
+  if (!roomId || !userId) {
+    throw new Error("Sala o usuario no disponible.");
+  }
+
+  const accessToken = (await getAccessToken().catch(() => null)) || getCachedSupabaseAccessToken();
+  let backendLeaveUnavailable = isBackendLeaveEndpointUnavailable;
+  if (accessToken && !isBackendLeaveEndpointUnavailable) {
+    try {
+      const response = await fetch(getBackendUrl("/api/rooms/leave"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ roomId }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.ok) {
+        return true;
+      }
+
+      if (![404, 405].includes(response.status)) {
+        throw new Error(payload?.error || "No se pudo salir de la sala.");
+      }
+
+      backendLeaveUnavailable = true;
+      isBackendLeaveEndpointUnavailable = true;
+    } catch (requestError) {
+      // CORS/404 de despliegue parcial: usar fallback directo a Supabase mientras
+      // el endpoint backend /api/rooms/leave no este publicado en el entorno.
+      console.warn("leaveRoom backend leave endpoint warning", requestError);
+      backendLeaveUnavailable = true;
+      isBackendLeaveEndpointUnavailable = true;
+    }
+  }
+
+  const { error: roomGroupMembershipError } = await supabase
+    .from("room_group_members")
+    .update({
+      state: "removed",
+    })
     .eq("room_id", roomId)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("state", "active");
+
+  if (roomGroupMembershipError) {
+    throw roomGroupMembershipError;
+  }
+
+  const { data: updatedMemberships, error: membershipError } = await supabase
+    .from("room_members")
+    .update({
+      state: "removed",
+    })
+    .eq("room_id", roomId)
+    .eq("user_id", userId)
+    .eq("state", "active")
+    .select("id");
 
   if (membershipError) {
     throw membershipError;
   }
 
-  const { error: accountError } = await supabase
-    .from("student_sim_accounts")
-    .delete()
-    .eq("room_id", roomId)
-    .eq("user_id", userId);
-
-  if (accountError) {
-    throw accountError;
+  if (Array.isArray(updatedMemberships) && updatedMemberships.length > 0) {
+    return true;
   }
 
-  return true;
+  const { data: membershipState, error: membershipStateError } = await supabase
+    .from("room_members")
+    .select("state")
+    .eq("room_id", roomId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (membershipStateError) {
+    throw membershipStateError;
+  }
+
+  if (backendLeaveUnavailable) {
+    if (membershipState?.state === "removed") {
+      return true;
+    }
+
+    throw new Error(
+      "No se pudo confirmar la salida en servidor. Falta desplegar el endpoint /api/rooms/leave en el backend."
+    );
+  }
+
+  if (!membershipState || membershipState.state === "removed") {
+    return true;
+  }
+
+  throw new Error("No se pudo confirmar la salida de la sala.");
 }
 
 export async function updateRoomState(roomId, nextState) {
-  if (!VALID_ROOM_STATES.has(nextState)) {
+  const normalizedState = normalizeRoomState(nextState);
+
+  if (!VALID_ROOM_STATES.has(normalizedState)) {
     throw new Error("Estado de sala invalido.");
+  }
+
+  const accessToken = await getAccessToken().catch(() => null);
+  if (accessToken) {
+    const response = await fetch(getBackendUrl("/api/rooms/update"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        roomId,
+        state: normalizedState,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+
+    if (response.ok && payload?.ok && payload?.room) {
+      return payload.room;
+    }
+
+    // Fallback to direct Supabase update for environments without the backend route.
+    if (![404, 405].includes(response.status)) {
+      throw new Error(payload?.error || "No se pudo actualizar el estado de la sala.");
+    }
   }
 
   const { data, error } = await supabase
     .from("rooms")
     .update({
-      state: nextState,
+      state: normalizedState,
       updated_at: new Date().toISOString(),
     })
     .eq("id", roomId)
     .select("*")
-    .single();
+    .limit(1);
 
   if (error) {
     throw error;
   }
 
-  return mapRoomRecord(data);
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("La sala ya no existe o no tienes permisos para actualizarla.");
+  }
+
+  return mapRoomRecord(data[0]);
 }
 
 export async function updateRoomDetails({
@@ -1023,6 +1196,8 @@ export async function updateRoomDetails({
   state,
   defaultBalance,
   defaultCurrency,
+  startDate,
+  endDate,
 }) {
   if (!roomId) {
     throw new Error("Sala no disponible.");
@@ -1033,14 +1208,15 @@ export async function updateRoomDetails({
     throw new Error("El nombre de la sala es obligatorio.");
   }
 
-  if (!VALID_ROOM_STATES.has(state)) {
+  const normalizedState = normalizeRoomState(state);
+  if (!VALID_ROOM_STATES.has(normalizedState)) {
     throw new Error("Estado de sala invalido.");
   }
 
   const payload = {
     name: trimmedName,
     description: String(description || "").trim(),
-    state,
+    state: normalizedState,
     updated_at: new Date().toISOString(),
   };
 
@@ -1052,37 +1228,611 @@ export async function updateRoomDetails({
     payload.default_currency = String(defaultCurrency).trim().toUpperCase();
   }
 
+  if (startDate !== undefined) {
+    payload.start_date = startDate || null;
+  }
+
+  if (endDate !== undefined) {
+    payload.end_date = endDate || null;
+  }
+
+  const accessToken = await getAccessToken().catch(() => null);
+  if (accessToken) {
+    const response = await fetch(getBackendUrl("/api/rooms/update"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        roomId,
+        name: trimmedName,
+        description: String(description || "").trim(),
+        state: normalizedState,
+        defaultBalance,
+        defaultCurrency,
+        startDate,
+        endDate,
+      }),
+    });
+
+    const apiPayload = await response.json().catch(() => null);
+    if (response.ok && apiPayload?.ok && apiPayload?.room) {
+      return apiPayload.room;
+    }
+
+    // Fallback to direct Supabase update for environments without the backend route.
+    if (![404, 405].includes(response.status)) {
+      throw new Error(apiPayload?.error || "No se pudo actualizar la sala.");
+    }
+  }
+
   const { data, error } = await supabase
     .from("rooms")
     .update(payload)
     .eq("id", roomId)
     .select("*")
-    .single();
+    .limit(1);
 
   if (error) {
     throw error;
   }
 
-  return mapRoomRecord(data);
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("La sala ya no existe o no tienes permisos para actualizarla.");
+  }
+
+  return mapRoomRecord(data[0]);
 }
 
-const mapSimAccount = (account) => ({
-  id: account.id,
-  roomId: account.room_id,
-  userId: account.user_id,
-  availableBalance: Number(account.available_balance ?? 0),
-  blockedBalance: Number(account.blocked_balance ?? 0),
-  totalBalance: Number(account.total_balance ?? 0),
-  currency: account.currency || "USD",
-  state: account.state,
-  createdAt: account.created_at,
-  updatedAt: account.updated_at,
-});
+export async function deleteRoom(roomId) {
+  if (!roomId) {
+    throw new Error("Sala no disponible.");
+  }
+
+  const accessToken = (await getAccessToken().catch(() => null)) || getCachedSupabaseAccessToken();
+  if (!accessToken) {
+    throw new Error("No se encontro una sesion valida para eliminar la sala.");
+  }
+
+  const response = await fetch(getBackendUrl("/api/rooms/delete"), {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ roomId }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload?.error || "No se pudo eliminar la sala.");
+  }
+
+  return true;
+}
+
+const resolveBackendAccessToken = async () =>
+  (await getAccessToken().catch(() => null)) || getCachedSupabaseAccessToken();
+
+const requestRoomGroupsApi = async (path, { method = "GET", body } = {}) => {
+  const accessToken = await resolveBackendAccessToken();
+  if (!accessToken) {
+    throw new Error("No se encontro una sesion valida.");
+  }
+
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  const response = await fetch(getBackendUrl(path), {
+    method: normalizedMethod,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: normalizedMethod === "GET" ? undefined : JSON.stringify(body || {}),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload?.error || "No se pudo completar la operacion de grupos.");
+  }
+
+  return payload;
+};
+
+export async function fetchRoomGroups(roomId) {
+  if (!roomId) {
+    throw new Error("Sala no disponible.");
+  }
+
+  const queryRoomId = encodeURIComponent(roomId);
+  return requestRoomGroupsApi(`/api/rooms/groups/list?roomId=${queryRoomId}`);
+}
+
+export async function createRoomGroup({
+  roomId,
+  name,
+  description = "",
+  maxMembers = null,
+  state = "active",
+}) {
+  return requestRoomGroupsApi("/api/rooms/groups/create", {
+    method: "POST",
+    body: {
+      roomId,
+      name,
+      description,
+      maxMembers,
+      state,
+    },
+  });
+}
+
+export async function updateRoomGroup({
+  roomId,
+  groupId,
+  name,
+  description,
+  maxMembers,
+  state,
+}) {
+  return requestRoomGroupsApi("/api/rooms/groups/update", {
+    method: "POST",
+    body: {
+      roomId,
+      groupId,
+      name,
+      description,
+      maxMembers,
+      state,
+    },
+  });
+}
+
+export async function upsertRoomGroupMember({
+  roomId,
+  groupId,
+  userId,
+  role = "member",
+  state = "active",
+}) {
+  return requestRoomGroupsApi("/api/rooms/groups/members", {
+    method: "POST",
+    body: {
+      roomId,
+      groupId,
+      userId,
+      role,
+      state,
+    },
+  });
+}
+
+export async function autoAssignRoomGroups({
+  roomId,
+  includeExistingMembers = false,
+}) {
+  return requestRoomGroupsApi("/api/rooms/groups/auto-assign", {
+    method: "POST",
+    body: {
+      roomId,
+      includeExistingMembers,
+    },
+  });
+}
+
+export async function provisionRoomGroupPortfolios({
+  roomId,
+  replaceExisting = false,
+}) {
+  return requestRoomGroupsApi("/api/rooms/groups/provision-portfolios", {
+    method: "POST",
+    body: {
+      roomId,
+      replaceExisting,
+    },
+  });
+}
+
+const toMoney = (value, fallback = 0) => {
+  const normalizedValue = Number(value);
+  return Number.isFinite(normalizedValue) ? normalizedValue : fallback;
+};
+
+const hasMoneyValue = (value) =>
+  value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+
+const resolveRoomTradingDefaults = async ({
+  roomId,
+  defaultBalance = 0,
+  defaultCurrency = "USD",
+}) => {
+  let resolvedDefaultBalance = Number(defaultBalance);
+  let resolvedDefaultCurrency = String(defaultCurrency || "").trim().toUpperCase();
+
+  const shouldFetchRoomDefaults =
+    !Number.isFinite(resolvedDefaultBalance) || resolvedDefaultBalance <= 0 || !resolvedDefaultCurrency;
+
+  if (shouldFetchRoomDefaults && roomId) {
+    const { data: room, error: roomError } = await supabase
+      .from("rooms")
+      .select("default_balance, default_currency")
+      .eq("id", roomId)
+      .maybeSingle();
+
+    if (roomError) {
+      throw roomError;
+    }
+
+    if (room) {
+      const roomDefaultBalance = Number(room.default_balance);
+      const roomDefaultCurrency = String(room.default_currency || "").trim().toUpperCase();
+
+      if (Number.isFinite(roomDefaultBalance)) {
+        resolvedDefaultBalance = roomDefaultBalance;
+      }
+
+      if (roomDefaultCurrency) {
+        resolvedDefaultCurrency = roomDefaultCurrency;
+      }
+    }
+  }
+
+  if (!Number.isFinite(resolvedDefaultBalance)) {
+    resolvedDefaultBalance = 0;
+  }
+
+  if (!resolvedDefaultCurrency) {
+    resolvedDefaultCurrency = "USD";
+  }
+
+  return {
+    defaultBalance: resolvedDefaultBalance,
+    defaultCurrency: resolvedDefaultCurrency,
+  };
+};
+
+const buildBalanceSnapshot = ({
+  availableBalance,
+  blockedBalance,
+  totalBalance,
+  currency,
+  ownerType = "user",
+  ownerGroupId = null,
+  isShared = false,
+}) => {
+  const nextAvailableBalance = toMoney(availableBalance, 0);
+  const nextBlockedBalance = toMoney(blockedBalance, 0);
+  const nextTotalBalance = hasMoneyValue(totalBalance)
+    ? toMoney(totalBalance, nextAvailableBalance + nextBlockedBalance)
+    : nextAvailableBalance + nextBlockedBalance;
+
+  return {
+    availableBalance: nextAvailableBalance,
+    blockedBalance: nextBlockedBalance,
+    totalBalance: nextTotalBalance,
+    currency: currency || "USD",
+    ownerType,
+    ownerGroupId,
+    isShared,
+  };
+};
+
+const mapRoomMemberBalanceAccount = (roomMember, groupMembership = null) => {
+  const hasActiveGroup = Boolean(groupMembership?.group_id);
+  const groupState = String(groupMembership?.group?.state || "").toLowerCase();
+  const useSharedBalance = hasActiveGroup && groupState === "active";
+
+  const individualSnapshot = buildBalanceSnapshot({
+    availableBalance: roomMember.individual_available_balance,
+    blockedBalance: roomMember.individual_blocked_balance,
+    totalBalance: roomMember.individual_total_balance,
+    currency: roomMember.individual_currency,
+    ownerType: "user",
+    ownerGroupId: null,
+    isShared: false,
+  });
+
+  const sharedSnapshot = useSharedBalance
+    ? buildBalanceSnapshot({
+        availableBalance: groupMembership.group_available_balance,
+        blockedBalance: groupMembership.group_blocked_balance,
+        totalBalance: groupMembership.group_total_balance,
+        currency: groupMembership.group_currency || individualSnapshot.currency,
+        ownerType: "group",
+        ownerGroupId: groupMembership.group_id,
+        isShared: true,
+      })
+    : null;
+
+  const shouldFallbackToIndividual =
+    Boolean(sharedSnapshot) &&
+    sharedSnapshot.availableBalance <= 0 &&
+    sharedSnapshot.blockedBalance <= 0 &&
+    sharedSnapshot.totalBalance <= 0 &&
+    (individualSnapshot.availableBalance > 0 ||
+      individualSnapshot.blockedBalance > 0 ||
+      individualSnapshot.totalBalance > 0);
+
+  const snapshot = shouldFallbackToIndividual ? individualSnapshot : sharedSnapshot || individualSnapshot;
+  const resolvedId = snapshot.isShared ? `rgm:${groupMembership.id}` : `rm:${roomMember.id}`;
+
+  return {
+    id: resolvedId,
+    roomId: roomMember.room_id,
+    userId: roomMember.user_id,
+    availableBalance: snapshot.availableBalance,
+    blockedBalance: snapshot.blockedBalance,
+    totalBalance: snapshot.totalBalance,
+    currency: snapshot.currency,
+    state: roomMember.state,
+    ownerType: snapshot.ownerType,
+    ownerGroupId: snapshot.ownerGroupId,
+    isShared: snapshot.isShared,
+    createdAt: roomMember.joined_at,
+    updatedAt: null,
+  };
+};
+
+export async function ensureRoomMemberTradingFields({
+  roomId,
+  userId,
+  defaultBalance = 0,
+  defaultCurrency = "USD",
+  createIfMissingRole = null,
+}) {
+  const {
+    defaultBalance: resolvedDefaultBalance,
+    defaultCurrency: resolvedDefaultCurrency,
+  } = await resolveRoomTradingDefaults({
+    roomId,
+    defaultBalance,
+    defaultCurrency,
+  });
+
+  const readRoomMember = async () => {
+    const { data, error } = await supabase
+      .from("room_members")
+      .select(
+        "id, room_id, user_id, role_in_room, individual_available_balance, individual_blocked_balance, individual_total_balance, individual_currency, individual_realized_pnl, individual_unrealized_pnl, individual_equity"
+      )
+      .eq("room_id", roomId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data || null;
+  };
+
+  let roomMember = await readRoomMember();
+
+  const normalizedCreateRole = String(createIfMissingRole || "").trim().toLowerCase();
+  if (!roomMember && normalizedCreateRole) {
+    const { error: createMemberError } = await supabase
+      .from("room_members")
+      .upsert(
+        {
+          room_id: roomId,
+          user_id: userId,
+          role_in_room: normalizedCreateRole,
+          state: "active",
+          individual_available_balance: resolvedDefaultBalance,
+          individual_blocked_balance: 0,
+          individual_total_balance: resolvedDefaultBalance,
+          individual_currency: resolvedDefaultCurrency || "USD",
+          individual_realized_pnl: 0,
+          individual_unrealized_pnl: 0,
+          individual_equity: resolvedDefaultBalance,
+        },
+        {
+          onConflict: "room_id,user_id",
+          ignoreDuplicates: true,
+        }
+      );
+
+    if (createMemberError && createMemberError.code !== "23505") {
+      throw createMemberError;
+    }
+
+    roomMember = await readRoomMember();
+  }
+
+  if (!roomMember) {
+    return null;
+  }
+
+  const nextAvailableBalance = hasMoneyValue(roomMember.individual_available_balance)
+    ? toMoney(roomMember.individual_available_balance, resolvedDefaultBalance)
+    : toMoney(resolvedDefaultBalance, 0);
+  const nextBlockedBalance = hasMoneyValue(roomMember.individual_blocked_balance)
+    ? toMoney(roomMember.individual_blocked_balance, 0)
+    : 0;
+  const nextTotalBalance = hasMoneyValue(roomMember.individual_total_balance)
+    ? toMoney(roomMember.individual_total_balance, nextAvailableBalance + nextBlockedBalance)
+    : nextAvailableBalance + nextBlockedBalance;
+  const nextEquity = hasMoneyValue(roomMember.individual_equity)
+    ? toMoney(roomMember.individual_equity, nextTotalBalance)
+    : nextTotalBalance;
+  const nextCurrency = roomMember.individual_currency || resolvedDefaultCurrency || "USD";
+  const nextRealizedPnl = hasMoneyValue(roomMember.individual_realized_pnl)
+    ? toMoney(roomMember.individual_realized_pnl, 0)
+    : 0;
+  const nextUnrealizedPnl = hasMoneyValue(roomMember.individual_unrealized_pnl)
+    ? toMoney(roomMember.individual_unrealized_pnl, 0)
+    : 0;
+
+  let shouldSeedMemberDefaultBalance = false;
+  if (
+    resolvedDefaultBalance > 0 &&
+    nextAvailableBalance <= 0 &&
+    nextBlockedBalance <= 0 &&
+    nextTotalBalance <= 0
+  ) {
+    const [{ count: positionsCount, error: positionsCountError }, { count: transactionsCount, error: transactionsCountError }] =
+      await Promise.all([
+        supabase
+          .from("positions")
+          .select("id", { count: "exact", head: true })
+          .eq("room_id", roomId)
+          .eq("user_id", userId),
+        supabase
+          .from("transactions")
+          .select("id", { count: "exact", head: true })
+          .eq("room_id", roomId)
+          .eq("user_id", userId),
+      ]);
+
+    if (positionsCountError) {
+      throw positionsCountError;
+    }
+
+    if (transactionsCountError) {
+      throw transactionsCountError;
+    }
+
+    const hasTradingHistory = (positionsCount ?? 0) > 0 || (transactionsCount ?? 0) > 0;
+    shouldSeedMemberDefaultBalance = !hasTradingHistory;
+  }
+
+  const finalAvailableBalance = shouldSeedMemberDefaultBalance ? resolvedDefaultBalance : nextAvailableBalance;
+  const finalBlockedBalance = shouldSeedMemberDefaultBalance ? 0 : nextBlockedBalance;
+  const finalTotalBalance = shouldSeedMemberDefaultBalance
+    ? resolvedDefaultBalance
+    : nextTotalBalance;
+  const finalEquity = shouldSeedMemberDefaultBalance
+    ? resolvedDefaultBalance
+    : nextEquity;
+
+  const requiresUpdate =
+    !hasMoneyValue(roomMember.individual_available_balance) ||
+    !hasMoneyValue(roomMember.individual_blocked_balance) ||
+    !hasMoneyValue(roomMember.individual_total_balance) ||
+    !hasMoneyValue(roomMember.individual_equity) ||
+    !hasMoneyValue(roomMember.individual_realized_pnl) ||
+    !hasMoneyValue(roomMember.individual_unrealized_pnl) ||
+    !roomMember.individual_currency ||
+    shouldSeedMemberDefaultBalance;
+
+  if (requiresUpdate) {
+    const { error: updateError } = await supabase
+      .from("room_members")
+      .update({
+        individual_available_balance: finalAvailableBalance,
+        individual_blocked_balance: finalBlockedBalance,
+        individual_total_balance: finalTotalBalance,
+        individual_currency: nextCurrency,
+        individual_realized_pnl: nextRealizedPnl,
+        individual_unrealized_pnl: nextUnrealizedPnl,
+        individual_equity: finalEquity,
+      })
+      .eq("id", roomMember.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+  }
+
+  return {
+    ...roomMember,
+    individual_available_balance: finalAvailableBalance,
+    individual_blocked_balance: finalBlockedBalance,
+    individual_total_balance: finalTotalBalance,
+    individual_currency: nextCurrency,
+    individual_realized_pnl: nextRealizedPnl,
+    individual_unrealized_pnl: nextUnrealizedPnl,
+    individual_equity: finalEquity,
+  };
+}
+
+const findActiveGroupMembershipWithBalance = async ({ roomId, userId }) => {
+  const { data, error } = await supabase
+    .from("room_group_members")
+    .select(
+      "id, room_id, group_id, user_id, state, group_available_balance, group_blocked_balance, group_total_balance, group_currency, group_realized_pnl, group_unrealized_pnl, group_equity, group:room_groups(id, state)"
+    )
+    .eq("room_id", roomId)
+    .eq("user_id", userId)
+    .eq("state", "active")
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const groupState = String(data.group?.state || "").toLowerCase();
+  if (groupState && groupState !== "active") {
+    return null;
+  }
+
+  return data;
+};
+
+const resolveEffectiveRoomMemberBalance = async ({ roomId, userId }) => {
+  const sharedMembership = await findActiveGroupMembershipWithBalance({ roomId, userId });
+
+  if (sharedMembership) {
+    const snapshot = buildBalanceSnapshot({
+      availableBalance: sharedMembership.group_available_balance,
+      blockedBalance: sharedMembership.group_blocked_balance,
+      totalBalance: sharedMembership.group_total_balance,
+      currency: sharedMembership.group_currency || "USD",
+      ownerType: "group",
+      ownerGroupId: sharedMembership.group_id,
+      isShared: true,
+    });
+
+    return {
+      ...snapshot,
+      groupMembershipId: sharedMembership.id,
+      groupId: sharedMembership.group_id,
+    };
+  }
+
+  const { data: roomMember, error: roomMemberError } = await supabase
+    .from("room_members")
+    .select(
+      "id, room_id, user_id, individual_available_balance, individual_blocked_balance, individual_total_balance, individual_currency"
+    )
+    .eq("room_id", roomId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (roomMemberError) {
+    throw roomMemberError;
+  }
+
+  if (!roomMember) {
+    return null;
+  }
+
+  const snapshot = buildBalanceSnapshot({
+    availableBalance: roomMember.individual_available_balance,
+    blockedBalance: roomMember.individual_blocked_balance,
+    totalBalance: roomMember.individual_total_balance,
+    currency: roomMember.individual_currency || "USD",
+    ownerType: "user",
+    ownerGroupId: null,
+    isShared: false,
+  });
+
+  return {
+    ...snapshot,
+    roomMemberId: roomMember.id,
+  };
+};
 
 export async function fetchRoomMembers(roomId) {
   const { data, error } = await supabase
     .from("room_members")
-    .select("id, room_id, user_id, role_in_room, state, joined_at, profile:profiles(*)")
+    .select(
+      "id, room_id, user_id, role_in_room, state, joined_at, individual_available_balance, individual_blocked_balance, individual_total_balance, individual_currency, profile:profiles(*)"
+    )
     .eq("room_id", roomId)
     .eq("state", "active")
     .order("joined_at", { ascending: true });
@@ -1098,21 +1848,56 @@ export async function fetchRoomMembers(roomId) {
     roleInRoom: entry.role_in_room,
     state: entry.state,
     joinedAt: entry.joined_at,
+    individualAvailableBalance: Number(entry.individual_available_balance ?? 0),
+    individualBlockedBalance: Number(entry.individual_blocked_balance ?? 0),
+    individualTotalBalance: Number(entry.individual_total_balance ?? 0),
+    individualCurrency: entry.individual_currency || "USD",
     profile: mapProfile(entry.profile),
   }));
 }
 
 export async function fetchRoomSimAccounts(roomId) {
-  const { data, error } = await supabase
-    .from("student_sim_accounts")
-    .select("*")
-    .eq("room_id", roomId);
+  const [roomMembersResult, groupMembershipsResult] = await Promise.all([
+    supabase
+      .from("room_members")
+      .select(
+        "id, room_id, user_id, role_in_room, state, joined_at, individual_available_balance, individual_blocked_balance, individual_total_balance, individual_currency"
+      )
+      .eq("room_id", roomId)
+      .eq("state", "active")
+      .order("joined_at", { ascending: true }),
+    supabase
+      .from("room_group_members")
+      .select(
+        "id, room_id, group_id, user_id, state, group_available_balance, group_blocked_balance, group_total_balance, group_currency, group:room_groups(id, state)"
+      )
+      .eq("room_id", roomId)
+      .eq("state", "active"),
+  ]);
 
-  if (error) {
-    throw error;
+  const studentMembers = roomMembersResult.data || [];
+  const studentMembersError = roomMembersResult.error;
+
+  if (studentMembersError) {
+    throw studentMembersError;
   }
 
-  return data.map(mapSimAccount);
+  if (groupMembershipsResult.error) {
+    console.warn("fetchRoomSimAccounts group memberships warning", groupMembershipsResult.error);
+  }
+
+  const activeGroupMembershipByUserId = new Map(
+    ((groupMembershipsResult.data || []) || [])
+      .filter((membership) => String(membership.group?.state || "").toLowerCase() === "active")
+      .map((membership) => [membership.user_id, membership])
+  );
+
+  return (studentMembers || []).map((studentMember) =>
+    mapRoomMemberBalanceAccount(
+      studentMember,
+      activeGroupMembershipByUserId.get(studentMember.user_id) || null
+    )
+  );
 }
 
 export async function adjustStudentRoomBalance({
@@ -1123,35 +1908,27 @@ export async function adjustStudentRoomBalance({
   adjustmentAmount,
   reason,
 }) {
-  const { data: account, error: accountError } = await supabase
-    .from("student_sim_accounts")
-    .select("*")
-    .eq("room_id", roomId)
-    .eq("user_id", studentUserId)
-    .single();
+  const currentSnapshot = await resolveEffectiveRoomMemberBalance({
+    roomId,
+    userId: studentUserId,
+  });
 
-  if (accountError) {
-    throw accountError;
+  if (!currentSnapshot) {
+    throw new Error("No se encontro una cuenta activa para el estudiante en la sala.");
   }
 
-  const previousBalance = Number(account.available_balance ?? 0);
+  const previousBalance = currentSnapshot.availableBalance;
   const numericAdjustment = Number(adjustmentAmount ?? 0);
   const nextBalance =
     adjustmentType === "reset"
       ? numericAdjustment
       : previousBalance + numericAdjustment;
 
-  const { error: updateError } = await supabase
-    .from("student_sim_accounts")
-    .update({
-      available_balance: nextBalance,
-      total_balance: nextBalance + Number(account.blocked_balance ?? 0),
-    })
-    .eq("id", account.id);
-
-  if (updateError) {
-    throw updateError;
-  }
+  await setStudentRoomBalance({
+    roomId,
+    userId: studentUserId,
+    availableBalance: nextBalance,
+  });
 
   const { error: adjustmentError } = await supabase.from("balance_adjustments").insert({
     room_id: roomId,
@@ -1179,37 +1956,85 @@ export async function setStudentRoomBalance({
   userId,
   availableBalance,
 }) {
-  const { data: account, error: accountError } = await supabase
-    .from("student_sim_accounts")
-    .select("*")
-    .eq("room_id", roomId)
-    .eq("user_id", userId)
-    .single();
+  const sharedMembership = await findActiveGroupMembershipWithBalance({
+    roomId,
+    userId,
+  });
 
-  if (accountError) {
-    throw accountError;
+  const nextAvailable = Number(availableBalance ?? 0);
+  if (sharedMembership) {
+    const blockedBalance = toMoney(sharedMembership.group_blocked_balance, 0);
+    const nextTotal = nextAvailable + blockedBalance;
+    const nextCurrency = sharedMembership.group_currency || "USD";
+
+    const { error: updateError } = await supabase
+      .from("room_group_members")
+      .update({
+        group_available_balance: nextAvailable,
+        group_total_balance: nextTotal,
+        group_currency: nextCurrency,
+        group_equity: nextTotal,
+      })
+      .eq("room_id", roomId)
+      .eq("group_id", sharedMembership.group_id)
+      .eq("state", "active");
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return {
+      availableBalance: nextAvailable,
+      blockedBalance,
+      totalBalance: nextTotal,
+      currency: nextCurrency,
+      ownerType: "group",
+      ownerGroupId: sharedMembership.group_id,
+      isShared: true,
+    };
   }
 
-  const blockedBalance = Number(account.blocked_balance ?? 0);
-  const nextAvailable = Number(availableBalance ?? 0);
+  const { data: roomMember, error: roomMemberError } = await supabase
+    .from("room_members")
+    .select(
+      "id, room_id, user_id, individual_blocked_balance, individual_currency"
+    )
+    .eq("room_id", roomId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (roomMemberError) {
+    throw roomMemberError;
+  }
+
+  const blockedBalance = toMoney(roomMember?.individual_blocked_balance, 0);
   const nextTotal = nextAvailable + blockedBalance;
+  const nextCurrency = roomMember?.individual_currency || "USD";
 
-  const { error: updateError } = await supabase
-    .from("student_sim_accounts")
-    .update({
-      available_balance: nextAvailable,
-      total_balance: nextTotal,
-    })
-    .eq("id", account.id);
+  if (roomMember?.id) {
+    const { error: updateError } = await supabase
+      .from("room_members")
+      .update({
+        individual_available_balance: nextAvailable,
+        individual_total_balance: nextTotal,
+        individual_currency: nextCurrency,
+        individual_equity: nextTotal,
+      })
+      .eq("id", roomMember.id);
 
-  if (updateError) {
-    throw updateError;
+    if (updateError) {
+      throw updateError;
+    }
   }
 
   return {
     availableBalance: nextAvailable,
     blockedBalance,
     totalBalance: nextTotal,
+    currency: nextCurrency,
+    ownerType: "user",
+    ownerGroupId: null,
+    isShared: false,
   };
 }
 

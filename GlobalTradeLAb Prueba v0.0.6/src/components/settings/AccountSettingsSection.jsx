@@ -35,7 +35,7 @@ const InfoCard = ({ icon: Icon, label, value, hint }) => (
       <span>{label}</span>
     </div>
     <div className="mt-2 text-sm font-medium text-foreground">{value}</div>
-    {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
+    {hint ? <p className="settings-context-help mt-1 text-xs text-muted-foreground">{hint}</p> : null}
   </div>
 );
 
@@ -138,7 +138,7 @@ const AccountSettingsSection = () => {
             </span>
             {t("accountSettings.pageTitle")}
           </CardTitle>
-          <CardDescription>{t("accountSettings.pageDescription")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("accountSettings.pageDescription")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4 pt-6">
@@ -169,7 +169,7 @@ const AccountSettingsSection = () => {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="space-y-2">
                 <CardTitle className="text-2xl">{t("accountSettings.sections.institutional.title")}</CardTitle>
-                <CardDescription>{t("accountSettings.sections.institutional.description")}</CardDescription>
+                <CardDescription className="settings-context-help">{t("accountSettings.sections.institutional.description")}</CardDescription>
               </div>
 
               <div className="flex flex-wrap gap-3">
@@ -260,7 +260,7 @@ const AccountSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("accountSettings.sections.rooms.title")}</CardTitle>
-            <CardDescription>{t("accountSettings.sections.rooms.description")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("accountSettings.sections.rooms.description")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 md:grid-cols-2">
             <div className="space-y-3">
@@ -310,7 +310,7 @@ const AccountSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("accountSettings.sections.progress.title")}</CardTitle>
-            <CardDescription>{t("accountSettings.sections.progress.description")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("accountSettings.sections.progress.description")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <InfoCard icon={Medal} label={t("accountSettings.labels.certificates")} value={certificates.join(" | ")} />
@@ -328,3 +328,4 @@ const AccountSettingsSection = () => {
 };
 
 export default AccountSettingsSection;
+

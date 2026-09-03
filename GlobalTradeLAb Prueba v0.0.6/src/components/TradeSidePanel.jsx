@@ -10,9 +10,13 @@ import TradeForm from "@/components/TradeForm";
 
 const TradeSidePanel = ({ open, onClose }) => {
   const { t } = useTranslation();
-  const { selectedSymbol, symbols } = useTradingWorkspace();
+  const { selectedSymbol, symbols, getCurrentPrice } = useTradingWorkspace();
 
   const selectedMarket = symbols.find((symbol) => symbol.id === selectedSymbol);
+  const liveSelectedPrice = Number(getCurrentPrice(selectedSymbol));
+  const hasLivePrice = Number.isFinite(liveSelectedPrice) && liveSelectedPrice > 0;
+  const selectedMarketCurrency = selectedMarket?.currency || "USD";
+  const selectedMarketChange = Number(selectedMarket?.change || 0);
 
   return (
     <AnimatePresence>
@@ -46,29 +50,40 @@ const TradeSidePanel = ({ open, onClose }) => {
                     <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                       {t("trading.tradePanel.selectedAssetLabel")}
                     </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <p className="text-lg font-semibold">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="text-xl font-semibold leading-none">
                         {selectedMarket?.id || t("trading.tradePanel.noSelection")}
                       </p>
-                      <p className="text-sm text-muted-foreground">
-                        {selectedMarket?.name || t("trading.tradePanel.selectAssetPrompt")}
-                      </p>
+                      {selectedMarket?.currency ? (
+                        <span className="rounded-full border border-border bg-background/65 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                          {selectedMarket.currency}
+                        </span>
+                      ) : null}
                     </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {selectedMarket?.name || t("trading.tradePanel.selectAssetPrompt")}
+                    </p>
                   </div>
                   <BadgeDollarSign className="h-5 w-5 text-primary" />
                 </div>
 
                 <div className="mt-2 flex items-center gap-3 text-sm">
                   <span className="font-medium">
-                    {selectedMarket ? formatCurrency(selectedMarket.price, selectedMarket.currency) : "--"}
+                    {selectedMarket
+                      ? hasLivePrice
+                        ? formatCurrency(liveSelectedPrice, selectedMarketCurrency)
+                        : t("trading.tradePanel.unavailableQuote")
+                      : "--"}
                   </span>
-                  <span
-                    className={`font-medium ${
-                      (selectedMarket?.change || 0) >= 0 ? "text-green-500" : "text-red-500"
-                    }`}
-                  >
-                    {selectedMarket ? formatPercentage(selectedMarket.change) : "--"}
-                  </span>
+                  {selectedMarket ? (
+                    <span
+                      className={`font-medium ${
+                        selectedMarketChange >= 0 ? "text-green-500" : "text-red-500"
+                      }`}
+                    >
+                      {formatPercentage(selectedMarketChange)}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>

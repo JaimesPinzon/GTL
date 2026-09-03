@@ -109,7 +109,7 @@ const MembershipSettingsSection = () => {
             </span>
             {t("settings.membership.title")}
           </CardTitle>
-          <CardDescription>{t("settings.membership.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("settings.membership.description")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4 pt-6">
@@ -145,7 +145,7 @@ const MembershipSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.membership.coverageTitle")}</CardTitle>
-            <CardDescription>{t("settings.membership.coverageDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.membership.coverageDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 md:grid-cols-2">
             <div className="space-y-3">
@@ -179,7 +179,7 @@ const MembershipSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.membership.usageTitle")}</CardTitle>
-            <CardDescription>{t("settings.membership.usageDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.membership.usageDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-3">
             <ProgressRow label={t("settings.membership.activeRooms")} current={usage.rooms} limit={currentPlan === t("settings.membership.free") ? 5 : 20} />
@@ -191,7 +191,7 @@ const MembershipSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.membership.billingTitle")}</CardTitle>
-            <CardDescription>{t("settings.membership.billingDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.membership.billingDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 md:grid-cols-2">
             <div className="space-y-3">
@@ -241,12 +241,12 @@ const MembershipSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.membership.comparisonTitle")}</CardTitle>
-            <CardDescription>{t("settings.membership.comparisonDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.membership.comparisonDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div className={`rounded-3xl border p-5 ${currentPlan === t("settings.membership.free") ? "border-primary bg-primary/10" : "border-border bg-background/50"}`}>
               <p className="text-lg font-semibold">{t("settings.membership.free")}</p>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.membership.freeDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.membership.freeDescription")}</p>
               <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
                 <li>{t("settings.membership.comparison.freeRooms")}</li>
                 <li>{t("settings.membership.comparison.freeTransactions")}</li>
@@ -255,7 +255,7 @@ const MembershipSettingsSection = () => {
             </div>
             <div className={`rounded-3xl border p-5 ${currentPlan === t("settings.membership.pro") ? "border-primary bg-primary/10" : "border-border bg-background/50"}`}>
               <p className="text-lg font-semibold">{t("settings.membership.pro")}</p>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.membership.proDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.membership.proDescription")}</p>
               <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
                 <li>{t("settings.membership.comparison.proRooms")}</li>
                 <li>{t("settings.membership.comparison.proTransactions")}</li>
@@ -270,3 +270,4 @@ const MembershipSettingsSection = () => {
 };
 
 export default MembershipSettingsSection;
+

@@ -158,14 +158,6 @@ const TradeFormUI = ({
 
   return (
     <div className="glass-card rounded-lg p-4">
-      <h2 className="mb-1 text-lg font-bold">
-        {t("trading.form.title", { symbol: selectedSymbol })}
-      </h2>
-      <p className="mb-3 text-sm text-muted-foreground">
-        {t("trading.form.currentPriceLabel")}:{" "}
-        <span className="font-medium">{formatCurrency(currentPrice, assetCurrency)}</span>
-      </p>
-
       <Tabs defaultValue="BUY" onValueChange={setTradeType}>
         <TabsList className="mb-3 grid grid-cols-2">
           <TabsTrigger value="BUY">{t("trading.sides.buy")}</TabsTrigger>

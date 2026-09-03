@@ -56,7 +56,7 @@ const ToggleRow = ({ title, description, checked, onChange, disabled = false, ba
           </span>
         ) : null}
       </div>
-      <p className="text-sm text-muted-foreground">{description}</p>
+      <p className="settings-context-help text-sm text-muted-foreground">{description}</p>
     </div>
     <button
       type="button"
@@ -314,7 +314,7 @@ const SecuritySettingsSection = () => {
             </span>
             {t("settings.security.title")}
           </CardTitle>
-          <CardDescription>{t("settings.security.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("settings.security.description")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4 pt-6">
@@ -353,7 +353,7 @@ const SecuritySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.security.verificationTitle")}</CardTitle>
-            <CardDescription>{t("settings.security.verificationDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.security.verificationDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <ToggleRow
@@ -403,7 +403,7 @@ const SecuritySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.security.passwordTitle")}</CardTitle>
-            <CardDescription>{t("settings.security.passwordDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.security.passwordDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
@@ -446,7 +446,7 @@ const SecuritySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.security.sessionsTitle")}</CardTitle>
-            <CardDescription>{t("settings.security.sessionsDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.security.sessionsDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-3">
@@ -540,7 +540,7 @@ const SecuritySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-destructive/30">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.security.sensitiveActionsTitle")}</CardTitle>
-            <CardDescription>{t("settings.security.sensitiveActionsDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.security.sensitiveActionsDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
@@ -580,7 +580,7 @@ const SecuritySettingsSection = () => {
                 <Trash2 className="h-4 w-4 text-destructive" />
                 <p className="text-sm font-semibold">{t("settings.security.deleteTitle")}</p>
               </div>
-              <p className="mb-3 text-sm text-muted-foreground">{t("settings.security.deleteHelp")}</p>
+              <p className="settings-context-help mb-3 text-sm text-muted-foreground">{t("settings.security.deleteHelp")}</p>
               <Input
                 value={deleteConfirmText}
                 onChange={(event) => setDeleteConfirmText(event.target.value)}
@@ -601,3 +601,4 @@ const SecuritySettingsSection = () => {
 };
 
 export default SecuritySettingsSection;
+

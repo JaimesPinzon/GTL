@@ -252,6 +252,10 @@ html[data-high-contrast="true"] .app-chrome-soft {
   border-color: hsla(var(--border) / 1);
 }
 
+.settings-context-help-hidden .settings-context-help {
+  display: none !important;
+}
+
 .chart-container {
   position: relative;
   width: 100%;
@@ -1059,6 +1063,46 @@ html[data-high-contrast="true"] .app-chrome-soft {
     linear-gradient(315deg, transparent 50%, rgba(120, 120, 120, 0.98) 50%) center 42% / 7px 7px no-repeat,
     linear-gradient(45deg, transparent 50%, rgba(120, 120, 120, 0.98) 50%) center 42% / 7px 7px no-repeat,
     rgba(255, 255, 255, 0.96);
+}
+
+.gtl-date-input {
+  color-scheme: dark;
+}
+
+.gtl-date-input::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+}
+
+.gtl-date-input::-webkit-inner-spin-button {
+  display: none;
+}
+
+.gtl-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  place-content: center;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.gtl-checkbox::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: scale(0);
+  transition: transform 160ms ease-in-out;
+  clip-path: polygon(14% 44%, 0 60%, 45% 100%, 100% 14%, 84% 0, 43% 62%);
+  background: hsl(var(--primary));
+}
+
+.gtl-checkbox:checked {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.16);
+}
+
+.gtl-checkbox:checked::before {
+  transform: scale(1);
 }
 
 @media (min-width: 1024px) {

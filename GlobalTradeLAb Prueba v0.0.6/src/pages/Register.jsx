@@ -20,7 +20,7 @@ import { APP_HOME_PATH } from "@/lib/routes";
 
 const Register = () => {
   const navigate = useNavigate();
-  const { register: registerUser } = useTradingContext();
+  const { register: registerUser, loginWithGoogle } = useTradingContext();
   const { toast } = useToast();
   const { t } = useTranslation();
   const [formData, setFormData] = useState({
@@ -30,6 +30,8 @@ const Register = () => {
     confirmPassword: "",
     role: "student",
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -70,12 +72,14 @@ const Register = () => {
       return;
     }
 
+    setIsSubmitting(true);
     const result = await registerUser({
       name: formData.name,
       email: formData.email,
       password: formData.password,
       role: formData.role,
     });
+    setIsSubmitting(false);
 
     if (result.success && result.user) {
       if (result.user.role === "teacher") {
@@ -88,6 +92,21 @@ const Register = () => {
 
       navigate(result.requiresEmailConfirmation ? "/login" : APP_HOME_PATH);
     }
+  };
+
+  const handleGoogleRegister = async () => {
+    if (typeof loginWithGoogle !== "function") {
+      toast({
+        title: t("auth.register.errorTitle"),
+        description: t("auth.register.errorDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGoogleSubmitting(true);
+    await loginWithGoogle();
+    setIsGoogleSubmitting(false);
   };
 
   return (
@@ -170,8 +189,32 @@ const Register = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button type="submit" className="w-full">
-                  {t("auth.register.submit")}
+                <Button type="submit" className="w-full" disabled={isSubmitting || isGoogleSubmitting}>
+                  {isSubmitting ? t("auth.register.submitting") : t("auth.register.submit")}
+                </Button>
+
+                <div className="flex items-center gap-3 py-1">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground">o</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleGoogleRegister}
+                  disabled={isSubmitting || isGoogleSubmitting}
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4">
+                    <path
+                      fill="#EA4335"
+                      d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 3.9 1.5l2.6-2.5C16.8 3.4 14.6 2.5 12 2.5 6.8 2.5 2.5 6.8 2.5 12s4.3 9.5 9.5 9.5 9.1-3.7 9.1-9c0-.6-.1-1-.2-1.3H12z"
+                    />
+                  </svg>
+                  {isGoogleSubmitting
+                    ? t("auth.register.redirectingToGoogle")
+                    : t("auth.register.continueWithGoogle")}
                 </Button>
               </div>
             </form>

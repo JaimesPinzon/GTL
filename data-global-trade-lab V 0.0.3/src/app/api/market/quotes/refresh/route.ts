@@ -47,8 +47,16 @@ async function handleRefresh(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const symbols = parseTrackedSymbols(searchParams.get("symbols"));
+    const forceRefresh = ["1", "true", "yes", "on"].includes(
+        String(searchParams.get("force") || "")
+            .trim()
+            .toLowerCase()
+    );
     try {
-        const refreshResult = await refreshTrackedQuotesIfDue({ symbols });
+        const refreshResult = await refreshTrackedQuotesIfDue({
+            symbols,
+            force: forceRefresh,
+        });
 
         return NextResponse.json(
             {

@@ -1,11 +1,16 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Bitcoin, Briefcase, Landmark, Search, TrendingDown, TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useTradingWorkspace } from "@/features/classes/hooks/useTradingWorkspace";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getLastCandleMarketFromBackend } from "@/lib/backend-market";
 import { formatCurrency, formatPercentage } from "@/lib/market-data";
+import { supabase } from "@/lib/supabase";
+import {
+  mapSnapshotRowsToSymbols,
+  SNAPSHOT_REFRESH_INTERVAL_MS,
+} from "@/lib/market-snapshot";
 import { motion } from "framer-motion";
 
 const SymbolIcon = ({ type }) => {
@@ -26,7 +31,7 @@ const SymbolIcon = ({ type }) => {
 
 const TeacherMarkets = () => {
   const { t } = useTranslation();
-  const { symbols } = useTradingWorkspace();
+  const [symbols, setSymbols] = useState([]);
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const typeLabels = useMemo(
@@ -52,6 +57,69 @@ const TeacherMarkets = () => {
     ],
     [t]
   );
+  const getMarketStatusLabel = useCallback(
+    (status) => {
+      if (status === "open") {
+        return t("marketSearch.marketStatus.open", { defaultValue: "Abierto" });
+      }
+      if (status === "closed") {
+        return t("marketSearch.marketStatus.closed", { defaultValue: "Cerrado" });
+      }
+
+      return t("marketSearch.marketStatus.unknown", { defaultValue: "N/D" });
+    },
+    [t]
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+    let isRefreshing = false;
+
+    const loadSnapshotRows = async () => {
+      if (isRefreshing) {
+        return;
+      }
+
+      isRefreshing = true;
+      try {
+        const rows = await getLastCandleMarketFromBackend({ limit: 500 });
+        if (!isMounted) {
+          return;
+        }
+        setSymbols(mapSnapshotRowsToSymbols(rows, t));
+      } catch (error) {
+        console.error("loadTeacherMarketsSnapshot error", error);
+        if (isMounted) {
+          setSymbols([]);
+        }
+      } finally {
+        isRefreshing = false;
+      }
+    };
+
+    void loadSnapshotRows();
+    const interval = window.setInterval(loadSnapshotRows, SNAPSHOT_REFRESH_INTERVAL_MS);
+    const channel = supabase
+      .channel("teacher-markets-last-candle")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "last_candle_market",
+        },
+        () => {
+          void loadSnapshotRows();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+      void supabase.removeChannel(channel);
+    };
+  }, [t]);
 
   const filteredSymbols = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -130,6 +198,7 @@ const TeacherMarkets = () => {
                     <TableHead className="text-right">{t("marketSearch.columns.change24h")}</TableHead>
                     <TableHead>{t("marketSearch.columns.type")}</TableHead>
                     <TableHead>{t("marketSearch.columns.currency")}</TableHead>
+                    <TableHead>{t("marketSearch.columns.marketStatus", { defaultValue: "Mercado" })}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -140,7 +209,7 @@ const TeacherMarkets = () => {
                           <SymbolIcon type={symbol.type} />
                           <div>
                             <p className="font-medium">{symbol.name}</p>
-                            <p className="text-xs text-muted-foreground">{symbol.id}</p>
+                            <p className="text-xs text-muted-foreground">{symbol.marketSymbol}</p>
                           </div>
                         </div>
                       </TableCell>
@@ -155,6 +224,7 @@ const TeacherMarkets = () => {
                       </TableCell>
                       <TableCell>{typeLabels[symbol.type] || symbol.type}</TableCell>
                       <TableCell>{symbol.currency}</TableCell>
+                      <TableCell>{getMarketStatusLabel(symbol.marketStatus)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

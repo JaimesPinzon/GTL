@@ -23,7 +23,7 @@ const ToggleRow = ({ title, description, checked, onChange, icon: Icon }) => (
         {Icon ? <Icon className="h-4 w-4 text-primary" /> : null}
         <p className="text-sm font-semibold">{title}</p>
       </div>
-      <p className="text-sm text-muted-foreground">{description}</p>
+      <p className="settings-context-help text-sm text-muted-foreground">{description}</p>
     </div>
     <button
       type="button"
@@ -89,7 +89,7 @@ const NotificationsSettingsSection = () => {
             </span>
             {t("settings.notifications.title")}
           </CardTitle>
-          <CardDescription>{t("settings.notifications.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("settings.notifications.description")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4 pt-6">
@@ -124,7 +124,7 @@ const NotificationsSettingsSection = () => {
 
           <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
             <p className="text-sm font-semibold">{t("settings.notifications.digestTitle")}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t("settings.notifications.digestDescription")}</p>
+            <p className="settings-context-help mt-1 text-sm text-muted-foreground">{t("settings.notifications.digestDescription")}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {["off", "daily", "weekly"].map((value) => (
                 <Button
@@ -151,7 +151,7 @@ const NotificationsSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.notifications.categoriesTitle")}</CardTitle>
-            <CardDescription>{t("settings.notifications.categoriesDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.notifications.categoriesDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <ToggleRow title={t("settings.notifications.items.academic.title")} description={t("settings.notifications.items.academic.description")} checked={Boolean(state.categories.academic)} onChange={(value) => saveAndToast({ categories: { academic: value } })} icon={GraduationCap} />
@@ -164,7 +164,7 @@ const NotificationsSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.notifications.alertsTitle")}</CardTitle>
-            <CardDescription>{t("settings.notifications.alertsDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.notifications.alertsDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {["academicActivity", "roomAlerts", "grades", "forums", "lowBalance", "activityOpenClose", "maintenance"].map((key) => (
@@ -195,3 +195,4 @@ const NotificationsSettingsSection = () => {
 };
 
 export default NotificationsSettingsSection;
+

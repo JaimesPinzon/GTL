@@ -87,26 +87,26 @@ const SupportSettingsSection = () => {
             </span>
             {t("settings.support.title")}
           </CardTitle>
-          <CardDescription>{t("settings.support.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("settings.support.description")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4 pt-6">
           <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.support.helpCenter")}</p>
-            <p className="mt-2 text-sm text-foreground">{t("settings.support.helpCenterDescription")}</p>
+            <p className="settings-context-help mt-2 text-sm text-foreground">{t("settings.support.helpCenterDescription")}</p>
           </div>
 
           <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.support.currentVersion")}</p>
             <p className="mt-2 text-sm font-medium text-foreground">GTL v{PLATFORM_VERSION}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{t("settings.support.versionHelp")}</p>
+            <p className="settings-context-help mt-1 text-xs text-muted-foreground">{t("settings.support.versionHelp")}</p>
           </div>
 
           {user?.role === "student" && teacherEmail ? (
             <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.support.linkedTeacher")}</p>
               <p className="mt-2 text-sm font-medium text-foreground">{teacherEmail}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="settings-context-help mt-1 text-xs text-muted-foreground">
                 {activeRoom?.name
                   ? t("settings.support.teacherHelpRoom", { room: activeRoom.name })
                   : t("settings.support.teacherHelpGeneric")}
@@ -124,7 +124,7 @@ const SupportSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.support.faqTitle")}</CardTitle>
-            <CardDescription>{t("settings.support.faqDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.support.faqDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-2xl border border-border/70 bg-background/50 p-5">
@@ -132,7 +132,7 @@ const SupportSettingsSection = () => {
                 <BookOpen className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.support.helpCenter")}</p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.support.supportCenterDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.support.supportCenterDescription")}</p>
             </div>
 
             <div className="grid gap-4">
@@ -142,7 +142,7 @@ const SupportSettingsSection = () => {
                     <HelpCircle className="mt-0.5 h-4 w-4 text-primary" />
                     <div>
                       <p className="text-sm font-semibold text-foreground">{item.question}</p>
-                      <p className="mt-2 text-sm text-muted-foreground">{item.answer}</p>
+                      <p className="settings-context-help mt-2 text-sm text-muted-foreground">{item.answer}</p>
                     </div>
                   </div>
                 </div>
@@ -154,7 +154,7 @@ const SupportSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.support.contactTitle")}</CardTitle>
-            <CardDescription>{t("settings.support.contactDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.support.contactDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-border/70 bg-background/50 p-5">
@@ -180,7 +180,7 @@ const SupportSettingsSection = () => {
                 <Bug className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.support.reportError")}</p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.support.errorDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.support.errorDescription")}</p>
               <Button className="mt-4" onClick={() => openMailTo(t("settings.support.subjects.error"), t("settings.support.bodies.error", { version: PLATFORM_VERSION }))}>
                 <Bug className="mr-2 h-4 w-4" />
                 {t("settings.support.sendReport")}
@@ -192,7 +192,7 @@ const SupportSettingsSection = () => {
                 <Lightbulb className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.support.sendSuggestion")}</p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.support.suggestionDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.support.suggestionDescription")}</p>
               <Button className="mt-4" variant="outline" onClick={() => openMailTo(t("settings.support.subjects.suggestion"), t("settings.support.bodies.suggestion"))}>
                 <Sparkles className="mr-2 h-4 w-4" />
                 {t("settings.support.sendSuggestion")}
@@ -204,7 +204,7 @@ const SupportSettingsSection = () => {
                 <Headphones className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.support.adminHelp")}</p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.support.adminHelpDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.support.adminHelpDescription")}</p>
             </div>
           </CardContent>
         </Card>
@@ -212,7 +212,7 @@ const SupportSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.support.legalTitle")}</CardTitle>
-            <CardDescription>{t("settings.support.legalDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.support.legalDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-3">
             {legalItems.map((item) => {
@@ -224,7 +224,7 @@ const SupportSettingsSection = () => {
                     <Icon className="h-4 w-4 text-primary" />
                     <p className="text-sm font-semibold">{item.title}</p>
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground">{item.description}</p>
+                  <p className="settings-context-help mt-3 text-sm text-muted-foreground">{item.description}</p>
                 </div>
               );
             })}
@@ -236,3 +236,4 @@ const SupportSettingsSection = () => {
 };
 
 export default SupportSettingsSection;
+

@@ -49,7 +49,7 @@ const ProfileField = ({ label, icon: Icon, children, hint }) => (
       <span>{label}</span>
     </div>
     {children}
-    {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    {hint ? <p className="settings-context-help text-xs text-muted-foreground">{hint}</p> : null}
   </div>
 );
 
@@ -221,7 +221,7 @@ const ProfileSettingsSection = () => {
             </span>
             {t("settings.profile.title")}
           </CardTitle>
-          <CardDescription>{t("settings.profile.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("settings.profile.description")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-6 pt-6">
@@ -269,7 +269,7 @@ const ProfileSettingsSection = () => {
                   className="cursor-pointer"
                 />
               </label>
-              <p className="text-xs text-muted-foreground">{t("settings.profile.avatarHelp")}</p>
+              <p className="settings-context-help text-xs text-muted-foreground">{t("settings.profile.avatarHelp")}</p>
             </div>
           </div>
 
@@ -292,7 +292,7 @@ const ProfileSettingsSection = () => {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-2">
               <CardTitle className="text-2xl">{t("settings.profile.infoTitle")}</CardTitle>
-              <CardDescription>{t("settings.profile.infoDescription")}</CardDescription>
+              <CardDescription className="settings-context-help">{t("settings.profile.infoDescription")}</CardDescription>
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -321,7 +321,7 @@ const ProfileSettingsSection = () => {
           <section className="space-y-4">
             <div>
               <h3 className="text-lg font-semibold">{t("settings.profile.identityTitle")}</h3>
-              <p className="text-sm text-muted-foreground">{t("settings.profile.identityDescription")}</p>
+              <p className="settings-context-help text-sm text-muted-foreground">{t("settings.profile.identityDescription")}</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -383,7 +383,7 @@ const ProfileSettingsSection = () => {
           <section className="space-y-4">
             <div>
               <h3 className="text-lg font-semibold">{t("settings.profile.locationTitle")}</h3>
-              <p className="text-sm text-muted-foreground">{t("settings.profile.locationDescription")}</p>
+              <p className="settings-context-help text-sm text-muted-foreground">{t("settings.profile.locationDescription")}</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -426,7 +426,7 @@ const ProfileSettingsSection = () => {
           <section className="space-y-4">
             <div>
               <h3 className="text-lg font-semibold">{t("settings.profile.tradingTitle")}</h3>
-              <p className="text-sm text-muted-foreground">{t("settings.profile.tradingDescription")}</p>
+              <p className="settings-context-help text-sm text-muted-foreground">{t("settings.profile.tradingDescription")}</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -457,3 +457,4 @@ const ProfileSettingsSection = () => {
 };
 
 export default ProfileSettingsSection;
+

@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRightLeft,
+  CalendarClock,
   CheckCircle2,
   ClipboardCopy,
   DoorOpen,
@@ -19,8 +20,46 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
+import { getDefaultRoomBalanceForCurrency, ROOM_CURRENCY_OPTIONS, ROOM_MARKET_OPTIONS } from "@/lib/room-options";
 
 const summaryCardClass = "rounded-2xl border border-border/70 bg-background/50 p-4";
+const getTodayIsoDate = () => new Date().toISOString().slice(0, 10);
+const gtlDateInputClass = "gtl-date-input h-11 rounded-2xl pr-10";
+const gtlCalendarButtonClass = "absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition hover:bg-accent hover:text-foreground";
+const gtlCheckboxClass = "gtl-checkbox h-4 w-4 rounded-md border border-border/80 bg-background text-primary accent-[hsl(var(--primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0";
+
+const openNativeDatePicker = (inputElement) => {
+  if (!inputElement) {
+    return;
+  }
+
+  try {
+    if (typeof inputElement.showPicker === "function") {
+      inputElement.showPicker();
+      return;
+    }
+  } catch (error) {
+    console.warn("showPicker unavailable", error);
+  }
+
+  inputElement.focus();
+  inputElement.click();
+};
+
+const buildRoomCreateForm = () => ({
+  name: "",
+  description: "",
+  defaultCurrency: "USD",
+  defaultBalance: String(getDefaultRoomBalanceForCurrency("USD")),
+  startDate: getTodayIsoDate(),
+  endDate: "",
+  allowRanking: true,
+  allowGrades: true,
+  portfolioVisibility: "teacher_only",
+  allowedMarkets: [],
+  coverImageUrl: "",
+  balanceEdited: false,
+});
 
 const badgeClassForState = (state) => {
   if (state === "active") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
@@ -48,7 +87,9 @@ const RoomsSettingsSection = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [roomHistory, setRoomHistory] = useState([]);
-  const [createForm, setCreateForm] = useState({ name: "", description: "" });
+  const createStartDateInputRef = useRef(null);
+  const createEndDateInputRef = useRef(null);
+  const [createForm, setCreateForm] = useState(() => buildRoomCreateForm());
 
   const roleLabel = (role) => t(`settings.rooms.roleLabels.${role || "member"}`);
   const stateLabel = (state) => t(`settings.rooms.stateLabels.${state || "archived"}`);
@@ -115,7 +156,8 @@ const RoomsSettingsSection = () => {
   };
 
   const handleJoinRoom = async () => {
-    if (!joinCode.trim()) {
+    const normalizedJoinCode = String(joinCode ?? "");
+    if (!normalizedJoinCode.trim()) {
       toast({
         title: t("settings.rooms.toasts.codeRequiredTitle"),
         description: t("settings.rooms.toasts.codeRequiredDescription"),
@@ -124,9 +166,18 @@ const RoomsSettingsSection = () => {
       return;
     }
 
+    if (!user?.id) {
+      toast({
+        title: t("settings.rooms.toasts.joinFailedTitle"),
+        description: t("auth.login.genericError"),
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const joinedRoom = await joinRoomWithCode(joinCode);
+      const joinedRoom = await joinRoomWithCode(normalizedJoinCode);
       setJoinCode("");
       toast({
         title: t("settings.rooms.toasts.joinedTitle"),
@@ -153,13 +204,69 @@ const RoomsSettingsSection = () => {
       return;
     }
 
+    if (!String(createForm.defaultCurrency || "").trim()) {
+      toast({
+        title: t("settings.rooms.toasts.currencyRequiredTitle"),
+        description: t("settings.rooms.toasts.currencyRequiredDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const parsedBaseBalance = Number(createForm.defaultBalance);
+    if (!Number.isFinite(parsedBaseBalance) || parsedBaseBalance <= 0) {
+      toast({
+        title: t("settings.rooms.toasts.baseBalanceInvalidTitle"),
+        description: t("settings.rooms.toasts.baseBalanceInvalidDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const normalizedEndDate = String(createForm.endDate || "").trim() || null;
+    if (
+      String(createForm.startDate || "").trim() &&
+      normalizedEndDate &&
+      normalizedEndDate < createForm.startDate
+    ) {
+      toast({
+        title: t("settings.rooms.toasts.invalidDateRangeTitle"),
+        description: t("settings.rooms.toasts.invalidDateRangeDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!Array.isArray(createForm.allowedMarkets) || createForm.allowedMarkets.length < 1) {
+      toast({
+        title: t("settings.rooms.toasts.marketRequiredTitle"),
+        description: t("settings.rooms.toasts.marketRequiredDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
+      const operationStartDate = String(createForm.startDate || "").trim() || getTodayIsoDate();
       const newRoom = await createRoomForUser({
         name: createForm.name,
         description: createForm.description,
+        defaultBalance: parsedBaseBalance,
+        defaultCurrency: createForm.defaultCurrency,
+        startDate: operationStartDate,
+        endDate: normalizedEndDate,
+        roomSettings: {
+          allowRanking: Boolean(createForm.allowRanking),
+          allowGrades: Boolean(createForm.allowGrades),
+          portfolioVisibility: createForm.portfolioVisibility,
+          allowedMarkets: createForm.allowedMarkets,
+          coverImageUrl: createForm.coverImageUrl,
+          operationStartDate,
+          operationCloseDate: normalizedEndDate,
+        },
       });
-      setCreateForm({ name: "", description: "" });
+      setCreateForm(buildRoomCreateForm());
       toast({
         title: t("settings.rooms.toasts.createdTitle"),
         description: t("settings.rooms.toasts.createdDescription", {
@@ -221,6 +328,80 @@ const RoomsSettingsSection = () => {
     await handleCopy(inviteMessage, t("settings.rooms.toasts.inviteReady"));
   };
 
+  const handleCreateRoomCurrencyChange = (currencyCode) => {
+    setCreateForm((previous) => {
+      const nextCurrency = String(currencyCode || "USD").toUpperCase();
+      const shouldSetDefaultBalance = !previous.balanceEdited || !String(previous.defaultBalance || "").trim();
+
+      return {
+        ...previous,
+        defaultCurrency: nextCurrency,
+        defaultBalance: shouldSetDefaultBalance
+          ? String(getDefaultRoomBalanceForCurrency(nextCurrency))
+          : previous.defaultBalance,
+      };
+    });
+  };
+
+  const handleCreateRoomCoverChange = (event) => {
+    const file = event.target?.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: t("trading.form.invalidFileTypeTitle"),
+        description: t("trading.form.invalidFileTypeDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        title: t("trading.form.fileTooLargeTitle"),
+        description: t("trading.form.fileTooLargeDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setCreateForm((previous) => ({
+        ...previous,
+        coverImageUrl: result,
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const toggleCreateRoomMarket = (marketId) => {
+    setCreateForm((previous) => {
+      const nextMarkets = previous.allowedMarkets.includes(marketId)
+        ? previous.allowedMarkets.filter((entry) => entry !== marketId)
+        : [...previous.allowedMarkets, marketId];
+
+      return {
+        ...previous,
+        allowedMarkets: nextMarkets,
+      };
+    });
+  };
+
+  const handleCreateRoomStartDateChange = (nextStartDate) => {
+    setCreateForm((previous) => ({
+      ...previous,
+      startDate: nextStartDate,
+      endDate:
+        previous.endDate && nextStartDate && previous.endDate < nextStartDate
+          ? nextStartDate
+          : previous.endDate,
+    }));
+  };
+
   return (
     <div className="mx-auto grid w-full max-w-6xl gap-6 xl:grid-cols-[1.05fr_1.95fr]">
       <Card className="glass-card overflow-hidden rounded-[28px] border-border/60">
@@ -231,14 +412,14 @@ const RoomsSettingsSection = () => {
             </span>
             {t("settings.rooms.title")}
           </CardTitle>
-          <CardDescription>{t("settings.rooms.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("settings.rooms.description")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4 pt-6">
           <div className={summaryCardClass}>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.activeRoom")}</p>
             <p className="mt-2 text-sm font-medium text-foreground">{activeRoom?.name || t("settings.rooms.noActiveRoom")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="settings-context-help mt-1 text-xs text-muted-foreground">
               {activeRoom?.accessCode
                 ? t("settings.rooms.currentCode", { code: activeRoom.accessCode })
                 : t("settings.rooms.selectRoomHint")}
@@ -262,7 +443,7 @@ const RoomsSettingsSection = () => {
           <div className={summaryCardClass}>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.mainRole")}</p>
             <p className="mt-2 text-sm font-medium text-foreground">{roleLabel(user?.role || "user")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="settings-context-help mt-1 text-xs text-muted-foreground">
               {user?.role === "teacher" ? t("settings.rooms.teacherRoleDescription") : t("settings.rooms.studentRoleDescription")}
             </p>
           </div>
@@ -273,7 +454,7 @@ const RoomsSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.rooms.quickActionsTitle")}</CardTitle>
-            <CardDescription>{t("settings.rooms.quickActionsDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.rooms.quickActionsDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-4 rounded-[28px] border border-border/60 bg-background/50 p-5">
@@ -281,7 +462,7 @@ const RoomsSettingsSection = () => {
                 <DoorOpen className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.rooms.joinTitle")}</p>
               </div>
-              <Input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase())} placeholder={t("settings.rooms.joinPlaceholder")} className="h-11 rounded-2xl" />
+              <Input value={joinCode} onChange={(event) => setJoinCode(String(event.target.value ?? "").toUpperCase())} placeholder={t("settings.rooms.joinPlaceholder")} className="h-11 rounded-2xl" />
               <Button className="w-full" onClick={handleJoinRoom} disabled={isSubmitting}>
                 {isSubmitting ? t("settings.rooms.joinSubmitting") : t("settings.rooms.joinSubmit")}
               </Button>
@@ -294,7 +475,140 @@ const RoomsSettingsSection = () => {
                   <p className="text-sm font-semibold">{t("settings.rooms.createTitle")}</p>
                 </div>
                 <Input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} placeholder={t("settings.rooms.createNamePlaceholder")} className="h-11 rounded-2xl" />
-                <Textarea value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} rows={4} placeholder={t("settings.rooms.createDescriptionPlaceholder")} className="rounded-2xl" />
+                <Textarea value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} rows={3} placeholder={t("settings.rooms.createDescriptionPlaceholder")} className="rounded-2xl" />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.createCurrencyLabel")}</p>
+                    <select
+                      value={createForm.defaultCurrency}
+                      onChange={(event) => handleCreateRoomCurrencyChange(event.target.value)}
+                      className="h-11 w-full rounded-2xl border border-border bg-background px-3 text-sm"
+                    >
+                      {ROOM_CURRENCY_OPTIONS.map((currency) => (
+                        <option key={currency.code} value={currency.code}>
+                          {currency.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.createBaseBalanceLabel")}</p>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={createForm.defaultBalance}
+                      onChange={(event) =>
+                        setCreateForm((current) => ({
+                          ...current,
+                          defaultBalance: event.target.value,
+                          balanceEdited: true,
+                        }))
+                      }
+                      className="h-11 rounded-2xl"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.createStartDateLabel")}</p>
+                    <div className="relative">
+                      <Input
+                        type="date"
+                        ref={createStartDateInputRef}
+                        value={createForm.startDate}
+                        onChange={(event) => handleCreateRoomStartDateChange(event.target.value)}
+                        className={gtlDateInputClass}
+                      />
+                      <button
+                        type="button"
+                        className={gtlCalendarButtonClass}
+                        onClick={() => openNativeDatePicker(createStartDateInputRef.current)}
+                        aria-label="Abrir calendario de fecha de inicio"
+                      >
+                        <CalendarClock className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.createCloseDateLabel")}</p>
+                    <div className="relative">
+                      <Input
+                        type="date"
+                        ref={createEndDateInputRef}
+                        value={createForm.endDate}
+                        min={createForm.startDate || undefined}
+                        onChange={(event) => setCreateForm((current) => ({ ...current, endDate: event.target.value }))}
+                        className={gtlDateInputClass}
+                      />
+                      <button
+                        type="button"
+                        className={gtlCalendarButtonClass}
+                        onClick={() => openNativeDatePicker(createEndDateInputRef.current)}
+                        aria-label="Abrir calendario de fecha de cierre"
+                      >
+                        <CalendarClock className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.createMarketsLabel")}</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {ROOM_MARKET_OPTIONS.map((market) => (
+                      <label key={market.id} className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          className={gtlCheckboxClass}
+                          checked={createForm.allowedMarkets.includes(market.id)}
+                          onChange={() => toggleCreateRoomMarket(market.id)}
+                        />
+                        {market.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className={gtlCheckboxClass}
+                      checked={createForm.allowRanking}
+                      onChange={(event) => setCreateForm((current) => ({ ...current, allowRanking: event.target.checked }))}
+                    />
+                    {t("settings.rooms.createAllowRankingLabel")}
+                  </label>
+                  <label className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className={gtlCheckboxClass}
+                      checked={createForm.allowGrades}
+                      onChange={(event) => setCreateForm((current) => ({ ...current, allowGrades: event.target.checked }))}
+                    />
+                    {t("settings.rooms.createAllowGradesLabel")}
+                  </label>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.createPortfolioVisibilityLabel")}</p>
+                  <select
+                    value={createForm.portfolioVisibility}
+                    onChange={(event) => setCreateForm((current) => ({ ...current, portfolioVisibility: event.target.value }))}
+                    className="h-11 w-full rounded-2xl border border-border bg-background px-3 text-sm"
+                  >
+                    <option value="teacher_only">{t("settings.rooms.createPortfolioTeacherOnly")}</option>
+                    <option value="public">{t("settings.rooms.createPortfolioPublic")}</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("settings.rooms.createCoverLabel")}</p>
+                  <Input type="file" accept="image/*" onChange={handleCreateRoomCoverChange} className="h-11 rounded-2xl" />
+                  {createForm.coverImageUrl ? (
+                    <img
+                      src={createForm.coverImageUrl}
+                      alt={t("settings.rooms.createCoverPreviewAlt")}
+                      className="h-24 w-full rounded-2xl border border-border/70 object-cover"
+                    />
+                  ) : null}
+                </div>
                 <Button className="w-full" onClick={handleCreateRoom} disabled={isSubmitting}>
                   {isSubmitting ? t("settings.rooms.createSubmitting") : t("settings.rooms.createSubmit")}
                 </Button>
@@ -306,7 +620,7 @@ const RoomsSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.rooms.roomsListTitle")}</CardTitle>
-            <CardDescription>{t("settings.rooms.roomsListDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.rooms.roomsListDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {rooms.length > 0 ? (
@@ -385,7 +699,7 @@ const RoomsSettingsSection = () => {
           <Card className="glass-card rounded-[28px] border-border/60">
             <CardHeader>
               <CardTitle className="text-xl">{t("settings.rooms.teacherRoomsTitle")}</CardTitle>
-              <CardDescription>{t("settings.rooms.teacherRoomsDescription")}</CardDescription>
+              <CardDescription className="settings-context-help">{t("settings.rooms.teacherRoomsDescription")}</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               {ownedRooms.length > 0 ? (
@@ -420,7 +734,7 @@ const RoomsSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.rooms.historyTitle")}</CardTitle>
-            <CardDescription>{t("settings.rooms.historyDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.rooms.historyDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {isHistoryLoading ? (
@@ -451,7 +765,7 @@ const RoomsSettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.rooms.notesTitle")}</CardTitle>
-            <CardDescription>{t("settings.rooms.notesDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.rooms.notesDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div className={summaryCardClass}>
@@ -459,14 +773,14 @@ const RoomsSettingsSection = () => {
                 <CheckCircle2 className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.rooms.availableTitle")}</p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.rooms.availableDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.rooms.availableDescription")}</p>
             </div>
             <div className={summaryCardClass}>
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold">{t("settings.rooms.teacherBaseTitle")}</p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">{t("settings.rooms.teacherBaseDescription")}</p>
+              <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("settings.rooms.teacherBaseDescription")}</p>
             </div>
           </CardContent>
         </Card>
@@ -476,3 +790,4 @@ const RoomsSettingsSection = () => {
 };
 
 export default RoomsSettingsSection;
+

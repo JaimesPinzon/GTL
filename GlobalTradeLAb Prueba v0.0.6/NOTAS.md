@@ -132,7 +132,7 @@
 * Se ajusto la scrollbar publica a un estilo mas fino y azul alineado con la identidad visual de GlobalTradeLab.
 * Se corrigio el offset entre header y hero en la home publica, permitiendo que el inicio quede pegado al header fijo sin la separacion inicial.
 
-0.0.6
+0.0.6 
 
 * Se elimino el backend duplicado dentro del frontend y se dejo como unica fuente de verdad el backend principal 0.0.2.
 * Se redirigio la autenticacion del frontend para consumir la API interna de auth del backend mediante cookies, csrf, restore, login, refresh, logout, logout-all, sessions y change-password.
@@ -194,14 +194,12 @@
 * Se corrigio la clasificacion de ETFs reemplazando referencias de indices por los ETFs reales `DIA` y `SPY`.
 * Se agrego el filtro de ETFs en la tabla flotante de busqueda de mercado y en la pagina de Mercados.
 * Se reordeno el filtro de ETFs para ubicarlo inmediatamente despues del filtro de indices en ambas vistas de mercado.
-
-20260506
-
 * Cambio: Se estabilizo la conexion del frontend con el backend principal para consumir mercado y autenticacion por rutas `/api` unificadas.
 * Correccion: Se ajusto la resolucion de `BACKEND_URL` para priorizar ruta relativa y evitar bloqueos por `ERR_CONNECTION_REFUSED` y `ERR_CONNECTION_RESET` en entorno local.
 * Correccion: Se actualizo el proxy de desarrollo para apuntar a `127.0.0.1` y reducir fallos intermitentes de red al consultar `/api/auth/*` y `/api/market/*`.
 * Agregacion: Se reforzo la degradacion visual del dashboard cuando no hay datos iniciales, permitiendo recuperacion tras la carga posterior de OHLC en backend.
 * Eliminacion: Se retiro la dependencia de endpoints o rutas acopladas a tablas legacy de velas por temporalidad, quedando acoplado al backend con `public.candles`.
+<<<<<<< HEAD
 
 20260827
 
@@ -209,3 +207,113 @@
 * Correccion: Se incorporo la variacion porcentual entregada por el backend como referencia del precio anterior, evitando mostrar `0%` por falta de una segunda vela.
 * Correccion: Se agrego un fallback de precios simulados validos cuando un mercado no responde o entrega una cotizacion invalida, evitando que el formulario de operaciones quede bloqueado con precio `0`.
 * Correccion: Se mantuvo la validacion de precio positivo para proteger las operaciones, permitiendo operar en todos los mercados con una cotizacion disponible.
+=======
+* Cambio: Se consolido el consumo de mercado y autenticacion del frontend sobre el backend principal con rutas `/api` centralizadas.
+* Agregacion: Se dejo el frontend preparado para reflejar velas OHLC servidas desde `public.candles` sin manejo de nombres de particiones en cliente.
+* Correccion: Se estabilizo la conectividad local reduciendo errores de red intermitentes mediante ajustes de `BACKEND_URL` y proxy en desarrollo.
+* Correccion: Se reforzo la recuperacion visual del dashboard para continuar operativo durante ausencia temporal de datos y rehidratarse al llegar nuevas velas.
+* Eliminacion: Se retiro el acoplamiento del frontend a estructuras legacy de velas por timeframe, usando un flujo unificado con backend.
+* Cambio: Se actualizo la configuracion local del frontend para consumir el backend publico `https://gtl-e6j4.onrender.com` en `VITE_BACKEND_URL`, `VITE_AUTH_BACKEND_URL` y `VITE_MARKET_BACKEND_URL`.
+* Agregacion: Se dejo el frontend preparado para operar contra Render sin depender de `localhost` en variables de entorno activas.
+* Correccion: Se confirmo compilacion de frontend con `npm run build` despues de aplicar la URL publica del backend.
+* Eliminacion: No se realizaron eliminaciones en frontend durante este cierre.
+* Cambio: Se fijo la carga inicial de historico OHLC en 500 velas y la carga incremental al desplazar hacia la izquierda en bloques de 100 velas.
+* Correccion: Se corrigio el cambio de activo en grafico limpiando estado previo al cambiar simbolo o temporalidad y reemplazando la serie inicial por la del activo seleccionado.
+* Correccion: Se evito la precarga automatica de historico antiguo al iniciar, dejando la solicitud incremental solo por desplazamiento real del usuario hacia la izquierda.
+* Correccion: Se estabilizo el enfoque inicial del chart para mostrar un rango amplio y consistente de barras al abrir.
+* Agregacion: Se agrego estado de fin de historico con validacion robusta cuando no hay mas velas o cuando la respuesta ya no agrega nuevos timestamps.
+* Agregacion: Se incorporo aviso visual de "No hay mas velas disponibles" en el badge superior de estado y en el borde izquierdo del grafico al llegar al limite historico.
+* Correccion: Se versiono cache OHLC en frontend para invalidar historicos antiguos y forzar recarga limpia tras ajustes de logica.
+* Eliminacion: Se retiro el comportamiento de mezclar historicos de simbolos distintos en la carga inicial del chart
+* Cambio: Se actualizo la configuracion local del frontend para consumir el backend publico `https://gtl-e6j4.onrender.com` en `VITE_BACKEND_URL`, `VITE_AUTH_BACKEND_URL` y `VITE_MARKET_BACKEND_URL`.
+* Agregacion: Se dejo el frontend preparado para operar contra Render sin depender de `localhost` en variables de entorno activas.
+* Correccion: Se confirmo compilacion de frontend con `npm run build` despues de aplicar la URL publica del backend.
+* Eliminacion: No se realizaron eliminaciones en frontend durante este cierre.
+* Cambio: Se habilito inicio y registro con Google en las vistas `Login` y `Register` reutilizando el flujo OAuth de Supabase en el contexto global de autenticacion.
+* Agregacion: Se incorporaron estados de carga y acciones de UI para Google OAuth en ambos formularios, incluyendo textos i18n para espanol e ingles.
+* Agregacion: Se centralizo la URL de redireccion OAuth en `src/lib/auth-config.js` con resolucion desde `VITE_OAUTH_REDIRECT_URL` y fallback dinamico al `APP_HOME_PATH`.
+* Correccion: Se agrego un puente automatico en `restoreSession` para intercambiar sesion Supabase por sesion propia de backend cuando no existe cookie previa de `refresh`.
+* Correccion: Se reforzo la configuracion de entorno para OAuth con `VITE_OAUTH_REDIRECT_URL` en el frontend.
+* Eliminacion: No se realizaron eliminaciones funcionales en frontend durante este cierre.
+* Cambio: Se unifico el flujo de union a sala para validar y normalizar el codigo (`trim`, mayusculas, eliminacion de espacios y guiones) antes de procesarlo.
+* Agregacion: Se priorizo en frontend el endpoint backend `POST /api/rooms/join` para el ingreso de estudiantes y se dejo fallback controlado al flujo directo cuando aplique.
+* Correccion: Se elimino el falso error visual posterior al ingreso cuando la vinculacion ya fue exitosa y falla una accion secundaria de seleccion de sala.
+* Agregacion: Se incorporo en tarjetas de sala el menu de tres puntos para estudiantes con la accion `Salir de sala`.
+* Correccion: Se estabilizo la interaccion del menu de acciones en tarjetas para evitar click-through sobre la tarjeta y superposicion de navegaciones.
+* Eliminacion: No se realizaron eliminaciones funcionales en frontend durante este cierre.
+
+0.0.7
+
+20261405
+
+* Cambio: Se amplio la creacion y edicion de salas para manejar nombre, descripcion, moneda, saldo inicial, fecha de inicio, fecha de cierre, mercados habilitados, ranking, calificaciones, visibilidad del portafolio y portada.
+* Agregacion: Se incorporo `src/lib/room-options.js` con catalogo de monedas y saldo base por moneda (`USD` 2500, `COP` 100000000), y listado de mercados disponibles.
+* Agregacion: Se incorporo `src/lib/room-settings.js` para persistencia local de configuraciones de sala (ranking, calificaciones, mercados, visibilidad, portada y fechas operativas).
+* Cambio: Se hidrataron salas en contexto global para mezclar datos de backend y configuracion local, incluyendo guardado de `roomSettings` al crear o editar.
+* Correccion: Se unificaron los estados de sala a `active`, `closed` y `archived`, con normalizacion de valores legacy.
+* Cambio: Se ajustaron las tarjetas de salas para mostrar bloques verticales de `Saldo base`, `Posicion en ranking` y `Calificaciones`.
+* Agregacion: Se aplico degradado visual y tooltip cuando ranking o calificaciones estan desactivados en la sala.
+* Correccion: Se estabilizo el menu de tres puntos en tarjetas para evitar superposicion de despliegues y aperturas multiples simultaneas.
+* Agregacion: Se anadio eliminar sala desde el menu de tres puntos con confirmacion explicita y estilos de advertencia en rojo.
+* Agregacion: Se anadio eliminar sala dentro de editar sala con confirmacion explicita y estilos de advertencia en rojo.
+* Cambio: La eliminacion de sala se maneja como archivado operativo (`archived`) para retirarla del flujo activo.
+* Correccion: Se removieron textos extra de advertencia en el modal de eliminacion, conservando solo el titulo y la confirmacion puntual.
+* Cambio: En creacion de sala, los mercados habilitados quedaron desmarcados por defecto y se exige minimo un mercado para guardar.
+* Correccion: Se reforzaron validaciones de fecha para impedir cierres menores a la fecha de inicio.
+* Agregacion: Se habilito fecha de cierre indefinida en editar sala, permitiendo guardar `operationCloseDate` en `null`.
+* Cambio: Se hizo no editable la moneda en editar sala una vez creada la sala.
+* Correccion: Se redirigio cancelar y volver en editar sala hacia el listado general de clases (`/app/classes`).
+* Correccion: Se estandarizo la apertura del calendario desde el icono usando `showPicker()` con fallback, evitando fallos intermitentes de apertura.
+* Cambio: Se aplico estilo GTL unificado a fechas y checkboxes mediante clases globales `gtl-date-input` y `gtl-checkbox`.
+* Agregacion: Se agregaron y ajustaron claves de i18n en espanol e ingles para nuevos campos, validaciones, toasts y acciones de sala.
+* Correccion: Se bloqueo operacion de estudiantes cuando la sala esta cerrada, archivada o fuera de fecha de cierre, manteniendo acceso de visualizacion.
+
+20261405
+
+* Correccion: Se elimino la sincronizacion del access token interno del backend hacia el almacenamiento de sesion de Supabase para evitar contaminacion de tokens.
+* Agregacion: Se incorporo validacion del issuer JWT de Supabase y saneamiento automatico de tokens invalidos o incompatibles en el storage local del cliente.
+* Correccion: Se reforzo la restauracion de sesion para usar token valido de Supabase y ejecutar `refreshSession` antes de reintentar `POST /api/auth/oauth-login` cuando el token este vencido o sea invalido.
+* Correccion: Se estabilizo la recuperacion de sesion en recarga para reducir falsos cierres de sesion por errores recuperables de red o expiracion de token de puente OAuth.
+* Correccion: Se valido compilacion del frontend con `npm run build` despues de los ajustes de autenticacion.
+* Eliminacion: No se realizaron eliminaciones funcionales en frontend durante este cierre.
+
+20261405
+
+* Agregacion: Se incorporo `deleteRoom(roomId)` en `src/lib/trading-db.js` para consumir `DELETE /api/rooms/delete` del backend.
+* Cambio: Se conecto el flujo de eliminar sala en `ClassesPanel` y `EditClassPage` para usar eliminacion real en backend en lugar de cambio de estado a `archived`.
+* Agregacion: Se agrego `deleteManagedRoom` en `TradingContext` para centralizar la eliminacion y refrescar la data de salas despues de borrar.
+* Correccion: Se ajustaron `updateRoomState` y `updateRoomDetails` para evitar error `406/PGRST116` cuando no hay filas, reemplazando `.single()` por lectura con `limit(1)` y control de sala inexistente.
+* Correccion: Se actualizaron textos i18n de eliminacion en `src/Languages/es.js` y `src/Languages/en.js`, cambiando redaccion de "archivada" a "eliminada" en mensajes de borrado de sala.
+
+20261405
+
+* Cambio: Se reemplazo el bloque de `Cuentas simuladas` por `Portafolios activos` en el resumen de la vista interna de clase.
+* Agregacion: Se agrego en la barra superior de clase el boton de regreso a clases con icono y acceso directo.
+* Agregacion: Se conecto el boton `Formar grupos` a una gestion funcional con modal para crear grupos, listar grupos, asignacion manual de estudiantes, autoasignacion y provision de portafolios grupales.
+* Agregacion: Se incorporaron helpers de consumo backend en `src/lib/trading-db.js` para grupos de sala (`list`, `create`, `update`, `members`, `auto-assign`, `provision-portfolios`).
+* Correccion: Se corrigio el error `ReferenceError: roomAccounts is not defined` en la vista de clase, restaurando el origen correcto del estado contextual.
+* Correccion: Se dejo la fecha de cierre operativa como campo no obligatorio en el flujo de creacion/edicion de sala.
+
+20261405
+
+* Correccion: Se ajusto la carga de salas en `src/contexts/TradingContext.jsx` para evitar rehidratar salas eliminadas desde cache local cuando el backend responde lista vacia.
+* Cambio: Se condiciono el fallback a `gtl.accessible-rooms` solo cuando falla la consulta al backend, conservando como fuente de verdad la respuesta remota.
+* Correccion: Se persistio cache de salas tambien cuando la lista es vacia para limpiar datos obsoletos en cliente.
+* Correccion: Se valido compilacion del frontend con `npm run build` despues de los ajustes de sincronizacion de salas.
+
+20261405
+
+* Correccion: Se estabilizo el callback de Google OAuth en frontend con reintentos extendidos de sesion Supabase durante la restauracion inicial.
+* Agregacion: Se incorporo lectura de `access_token` desde la URL de callback como respaldo para el puente OAuth cuando la sesion aun no esta hidratada en storage.
+* Cambio: Se reforzo `restoreSession` y el puente `POST /api/auth/oauth-login` con estrategia de reintento para evitar cierres de sesion por desfase de reloj de segundos.
+* Correccion: Se agrego manejo especifico de errores transitorios de autenticacion (`issued in the future` y `AuthSessionMissingError`) para evitar logout falso en el arranque.
+* Correccion: Se valido compilacion del frontend con `npm run build` y se publico en hosting con `firebase deploy --only hosting`.
+
+20261805
+
+* Cambio: Se actualizo `leaveRoom` en `src/lib/trading-db.js` para priorizar el endpoint backend `POST /api/rooms/leave` y confirmar salida real desde servidor.
+* Correccion: Se ajusto el fallback de salida para evitar confirmaciones falsas cuando el endpoint remoto no esta disponible, exigiendo verificacion de estado `removed`.
+* Correccion: Se elimino la reaparicion visual de salas tras salir aplicando limpieza inmediata de estado local y cache de salas accesibles en `TradingContext`.
+* Correccion: Se estabilizo el flujo de union a sala para evitar errores falsos posteriores a una vinculacion ya exitosa.
+* Correccion: Se mantiene operativa la autenticacion con Google con comportamiento parcial, pendiente de estabilizacion completa en callback y restauracion.
+>>>>>>> 65fcd81 (Cambio PC1)

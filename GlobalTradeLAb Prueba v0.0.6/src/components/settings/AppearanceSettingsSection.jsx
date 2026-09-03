@@ -98,7 +98,7 @@ const AppearanceSettingsSection = ({ currentTheme, setThemeMode }) => {
             </span>
             {t("settings.appearance.title")}
           </CardTitle>
-          <CardDescription>{t("settings.appearance.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("settings.appearance.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-6">
           <div className="rounded-[28px] border border-border/60 bg-background/60 p-5">
@@ -149,7 +149,7 @@ const AppearanceSettingsSection = ({ currentTheme, setThemeMode }) => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.appearance.colorsTitle")}</CardTitle>
-            <CardDescription>{t("settings.appearance.colorsDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.appearance.colorsDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-3">
@@ -205,7 +205,7 @@ const AppearanceSettingsSection = ({ currentTheme, setThemeMode }) => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.appearance.scaleTitle")}</CardTitle>
-            <CardDescription>{t("settings.appearance.scaleDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.appearance.scaleDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-3">
@@ -246,7 +246,7 @@ const AppearanceSettingsSection = ({ currentTheme, setThemeMode }) => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.appearance.dashboardTitle")}</CardTitle>
-            <CardDescription>{t("settings.appearance.dashboardDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.appearance.dashboardDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {["minimalist", "technical", "academic"].map((option) => (
@@ -271,7 +271,7 @@ const AppearanceSettingsSection = ({ currentTheme, setThemeMode }) => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("settings.appearance.widgetsTitle")}</CardTitle>
-            <CardDescription>{t("settings.appearance.widgetsDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("settings.appearance.widgetsDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {state.homeWidgetOrder.map((widgetId, index) => (
@@ -310,3 +310,4 @@ const AppearanceSettingsSection = ({ currentTheme, setThemeMode }) => {
 };
 
 export default AppearanceSettingsSection;
+

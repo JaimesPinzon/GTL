@@ -126,6 +126,18 @@ export async function GET(request: Request) {
         if (shouldAutoRefresh(latestSnapshotsBySymbol)) {
             autoRefresh = await refreshTrackedQuotesIfDue({ symbols });
             latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
+
+            if (
+                shouldAutoRefresh(latestSnapshotsBySymbol) &&
+                autoRefresh?.skipped &&
+                autoRefresh.reason === "refresh_window_locked_or_not_due"
+            ) {
+                autoRefresh = await refreshTrackedQuotesIfDue({
+                    symbols,
+                    force: true,
+                });
+                latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
+            }
         }
 
         const results = buildResults(latestSnapshotsBySymbol);

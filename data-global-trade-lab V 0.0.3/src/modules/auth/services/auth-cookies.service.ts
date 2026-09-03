@@ -32,12 +32,17 @@ export const setCsrfCookie = (response: NextResponse, csrfToken: string) => {
     response.cookies.set(authConfig.cookies.csrf.name, csrfToken, toCookieOptions(authConfig.cookies.csrf));
 };
 
-export const validateCsrfRequest = (request: NextRequest) => {
+export const validateCsrfRequest = (request: NextRequest, options: { allowHeaderOnly?: boolean } = {}) => {
     const cookies = getAuthCookies(request);
     const headerToken = request.headers.get("x-csrf-token") || "";
     const matches = Boolean(cookies.csrfToken && headerToken && cookies.csrfToken === headerToken);
+    const headerOnlyAllowed = Boolean(options.allowHeaderOnly && headerToken);
 
     debugCsrfValidation(request, Boolean(cookies.csrfToken), Boolean(headerToken), matches);
+
+    if (headerOnlyAllowed && !cookies.csrfToken) {
+        return;
+    }
 
     assertAuth(cookies.csrfToken, 403, "CSRF validation failed.");
     assertAuth(headerToken, 403, "CSRF validation failed.");

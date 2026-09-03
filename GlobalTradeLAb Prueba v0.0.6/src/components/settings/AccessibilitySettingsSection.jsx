@@ -21,7 +21,7 @@ const ToggleRow = ({ icon: Icon, title, description, checked, onChange }) => (
         {Icon ? <Icon className="h-4 w-4 text-primary" /> : null}
         <p className="text-sm font-semibold">{title}</p>
       </div>
-      <p className="text-sm text-muted-foreground">{description}</p>
+      <p className="settings-context-help text-sm text-muted-foreground">{description}</p>
     </div>
     <button
       type="button"
@@ -92,7 +92,7 @@ const AccessibilitySettingsSection = () => {
             </span>
             {t("accessibilitySettings.title")}
           </CardTitle>
-          <CardDescription>{t("accessibilitySettings.description")}</CardDescription>
+          <CardDescription className="settings-context-help">{t("accessibilitySettings.description")}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4 pt-6">
@@ -113,7 +113,7 @@ const AccessibilitySettingsSection = () => {
 
           <div className="rounded-2xl border border-border/70 bg-background/50 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("accessibilitySettings.baseTitle")}</p>
-            <p className="mt-2 text-sm text-muted-foreground">{t("accessibilitySettings.baseDescription")}</p>
+            <p className="settings-context-help mt-2 text-sm text-muted-foreground">{t("accessibilitySettings.baseDescription")}</p>
           </div>
         </CardContent>
       </Card>
@@ -122,7 +122,7 @@ const AccessibilitySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("accessibilitySettings.sections.visibilityTitle")}</CardTitle>
-            <CardDescription>{t("accessibilitySettings.sections.visibilityDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("accessibilitySettings.sections.visibilityDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <ToggleRow
@@ -159,7 +159,7 @@ const AccessibilitySettingsSection = () => {
         <Card className="glass-card rounded-[28px] border-border/60">
           <CardHeader>
             <CardTitle className="text-xl">{t("accessibilitySettings.sections.navigationTitle")}</CardTitle>
-            <CardDescription>{t("accessibilitySettings.sections.navigationDescription")}</CardDescription>
+            <CardDescription className="settings-context-help">{t("accessibilitySettings.sections.navigationDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <ToggleRow
@@ -191,3 +191,4 @@ const AccessibilitySettingsSection = () => {
 };
 
 export default AccessibilitySettingsSection;
+

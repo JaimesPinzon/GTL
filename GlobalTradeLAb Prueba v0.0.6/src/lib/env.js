@@ -31,12 +31,26 @@ const getRequiredUrlEnv = (key) => {
   }
 };
 
+const getOptionalUrlEnv = (key, fallback = "") => {
+  const value = getOptionalEnv(key, fallback);
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return new URL(value).toString().replace(/\/$/, "");
+  } catch {
+    throw new Error(`Invalid URL in environment variable: ${key}`);
+  }
+};
+
 export const env = {
   VITE_SUPABASE_URL: getRequiredUrlEnv("VITE_SUPABASE_URL"),
   VITE_SUPABASE_ANON_KEY: getRequiredEnv("VITE_SUPABASE_ANON_KEY"),
   VITE_BACKEND_URL: getOptionalEnv("VITE_BACKEND_URL", ""),
   VITE_AUTH_BACKEND_URL: getOptionalEnv("VITE_AUTH_BACKEND_URL", ""),
   VITE_MARKET_BACKEND_URL: getOptionalEnv("VITE_MARKET_BACKEND_URL", ""),
+  VITE_OAUTH_REDIRECT_URL: getOptionalUrlEnv("VITE_OAUTH_REDIRECT_URL", ""),
 };
 
 const buildBackendUrl = (baseUrl, path = "") => {

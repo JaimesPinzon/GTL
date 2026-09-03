@@ -7,6 +7,7 @@ const TradeFormLogic = ({
   getCurrentPrice,
   toast,
   userCurrency,
+  availableBalance,
 }) => {
   const { t } = useTranslation();
   const [tradeMode, setTradeMode] = useState("amount");
@@ -103,7 +104,10 @@ const TradeFormLogic = ({
       investmentAmountUSD,
       currentPrice,
       justification,
-      attachmentName
+      attachmentName,
+      {
+        availableBalance,
+      }
     );
 
     if (success) {

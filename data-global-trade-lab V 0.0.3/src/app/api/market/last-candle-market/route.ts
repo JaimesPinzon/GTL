@@ -127,6 +127,27 @@ export async function GET(request: Request) {
                 source,
                 symbols,
             });
+
+            if (
+                refreshInfo?.skipped &&
+                refreshInfo.reason === "refresh_window_locked_or_not_due" &&
+                shouldAutoRefreshSnapshots({
+                    rows: rows.map((row) => ({ symbol: row.symbol, fetchedAt: row.fetchedAt })),
+                    symbols,
+                    maxAgeMs: resolveRefreshIntervalMs(),
+                })
+            ) {
+                refreshInfo = await refreshTrackedQuotesIfDue({
+                    symbols: symbols.length > 0 ? symbols : undefined,
+                    force: true,
+                });
+
+                rows = await listLastCandleMarketSnapshots({
+                    limit: rawLimit,
+                    source,
+                    symbols,
+                });
+            }
         }
 
         return NextResponse.json(

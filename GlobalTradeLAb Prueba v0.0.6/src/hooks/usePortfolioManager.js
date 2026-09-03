@@ -5,8 +5,42 @@ import { formatCurrency } from "@/lib/market-data";
 export const usePortfolioManager = ({ currentUser, updateUser, toast, activeRoom, currentBalance }) => {
   const { t } = useTranslation();
   const isTeacher = currentUser?.role === "teacher";
+  const normalizeBalance = (value) => {
+    const parsedValue = Number(value);
+    return Number.isFinite(parsedValue) ? parsedValue : 0;
+  };
+  const isRoomReadOnlyForStudents = (room) => {
+    if (!room) {
+      return false;
+    }
 
-  const openPosition = async (symbol, type, amountUSD, entryPrice, justification, attachmentName) => {
+    const normalizedState = String(room.state || "").trim().toLowerCase();
+    if (["closed", "archived", "inactive", "deleted"].includes(normalizedState)) {
+      return true;
+    }
+
+    const closeDateValue = room.operationCloseDate || room.endDate;
+    if (!closeDateValue) {
+      return false;
+    }
+
+    const closeDate = new Date(closeDateValue);
+    if (!Number.isFinite(closeDate.getTime())) {
+      return false;
+    }
+
+    closeDate.setHours(23, 59, 59, 999);
+    return Date.now() > closeDate.getTime();
+  };
+
+  const openPosition = async (symbol, type, amountUSD, entryPrice, justification, attachmentName, options = {}) => {
+    const overrideBalance = normalizeBalance(options?.availableBalance);
+    const contextBalance = normalizeBalance(currentBalance);
+    const effectiveBalance =
+      options?.availableBalance !== undefined && options?.availableBalance !== null
+        ? overrideBalance
+        : contextBalance;
+
     if (!currentUser) {
       toast({
         title: t("trading.toasts.userNotFoundTitle"),
@@ -25,6 +59,15 @@ export const usePortfolioManager = ({ currentUser, updateUser, toast, activeRoom
       return false;
     }
 
+    if (!isTeacher && isRoomReadOnlyForStudents(activeRoom)) {
+      toast({
+        title: t("trading.toasts.roomClosedForOperationsTitle"),
+        description: t("trading.toasts.roomClosedForOperationsDescription"),
+        variant: "destructive",
+      });
+      return false;
+    }
+
     if (amountUSD <= 0) {
       toast({
         title: t("trading.toasts.invalidAmountTitle"),
@@ -34,7 +77,7 @@ export const usePortfolioManager = ({ currentUser, updateUser, toast, activeRoom
       return false;
     }
 
-    if (currentBalance < amountUSD) {
+    if (effectiveBalance < amountUSD) {
       toast({
         title: t("trading.toasts.insufficientBalanceTitle"),
         description: t(
@@ -82,7 +125,7 @@ export const usePortfolioManager = ({ currentUser, updateUser, toast, activeRoom
       ...currentUser,
       positions: [...currentUser.positions, newPosition],
       transactions: [...currentUser.transactions, newTransaction],
-      balance: currentBalance - amountUSD,
+      balance: effectiveBalance - amountUSD,
     });
 
     toast({
@@ -111,6 +154,15 @@ export const usePortfolioManager = ({ currentUser, updateUser, toast, activeRoom
       toast({
         title: t("trading.toasts.roomRequiredTitle"),
         description: t("trading.toasts.roomRequiredDescription"),
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    if (!isTeacher && isRoomReadOnlyForStudents(activeRoom)) {
+      toast({
+        title: t("trading.toasts.roomClosedForOperationsTitle"),
+        description: t("trading.toasts.roomClosedForOperationsDescription"),
         variant: "destructive",
       });
       return false;

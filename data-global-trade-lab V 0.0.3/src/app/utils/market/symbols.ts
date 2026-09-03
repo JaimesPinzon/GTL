@@ -29,3 +29,15 @@ export function parseTrackedSymbols(rawSymbols?: string | null) {
         ? normalizeMarketSymbols(normalizedSymbols)
         : normalizeMarketSymbols(trackedMarketSymbols);
 }
+/*    "AMZN",
+"GOOGL",
+"NVDA",
+"TSLA",
+"META",
+"BRK.B",
+"JPM",
+"JNJ",
+"XRP/USD",
+"ADA/USD",
+"SOL/USD",
+*/

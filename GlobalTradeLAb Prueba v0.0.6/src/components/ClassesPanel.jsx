@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarClock,
   CheckCircle2,
@@ -25,9 +25,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatCurrency, formatDate } from "@/lib/market-data";
+import { getDefaultRoomBalanceForCurrency, ROOM_CURRENCY_OPTIONS, ROOM_MARKET_OPTIONS } from "@/lib/room-options";
 import { buildClassEditRoute } from "@/lib/routes";
 import {
   createActivityPost,
@@ -38,6 +41,8 @@ import {
   fetchActivitySubmissions,
   fetchRoomBalanceAdjustments,
   fetchRoomGradebook,
+  fetchRoomMembers,
+  fetchRoomSimAccounts,
   fetchRoomActivities,
   uploadActivityAttachment,
   updateRoomActivityState,
@@ -118,6 +123,44 @@ const getEmptyStudentActivities = (t) => [
     type: t("classes.empty.studentType"),
   },
 ];
+
+const getTodayIsoDate = () => new Date().toISOString().slice(0, 10);
+const gtlDateInputClass = "gtl-date-input h-11 rounded-2xl border-white/10 bg-[#0b1220] pr-10 text-slate-100";
+const gtlCalendarButtonClass = "absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition hover:bg-white/10 hover:text-slate-200";
+const gtlCheckboxClass = "gtl-checkbox h-4 w-4 rounded-md border border-white/30 bg-[#0b1220] text-primary accent-[hsl(var(--primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0";
+
+const openNativeDatePicker = (inputElement) => {
+  if (!inputElement) {
+    return;
+  }
+
+  try {
+    if (typeof inputElement.showPicker === "function") {
+      inputElement.showPicker();
+      return;
+    }
+  } catch (error) {
+    console.warn("showPicker unavailable", error);
+  }
+
+  inputElement.focus();
+  inputElement.click();
+};
+
+const buildCreateRoomForm = () => ({
+  name: "",
+  description: "",
+  defaultCurrency: "USD",
+  defaultBalance: String(getDefaultRoomBalanceForCurrency("USD")),
+  startDate: getTodayIsoDate(),
+  endDate: "",
+  allowRanking: true,
+  allowGrades: true,
+  portfolioVisibility: "teacher_only",
+  allowedMarkets: [],
+  coverImageUrl: "",
+  balanceEdited: false,
+});
 
 const BalanceAdjustmentCard = ({ student, isOpen, onClose, onSubmit, isSubmitting, t }) => {
   const [adjustmentType, setAdjustmentType] = useState("top_up");
@@ -336,6 +379,8 @@ const ClassesPanel = () => {
     adjustStudentBalance,
     createRoomForUser,
     joinRoomWithCode,
+    leaveCurrentUserRoom,
+    deleteManagedRoom,
   } = useTradingContext();
   const { selectActiveClass } = useClassContext() || {};
   const { toast } = useToast();
@@ -352,6 +397,9 @@ const ClassesPanel = () => {
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [openRoomActionMenuId, setOpenRoomActionMenuId] = useState(null);
+  const [roomPendingDeletion, setRoomPendingDeletion] = useState(null);
+  const [isDeletingRoom, setIsDeletingRoom] = useState(false);
   const [isCreateActivityOpen, setIsCreateActivityOpen] = useState(false);
   const [isActivityDetailOpen, setIsActivityDetailOpen] = useState(false);
   const [activityDetailTab, setActivityDetailTab] = useState("overview");
@@ -365,6 +413,7 @@ const ClassesPanel = () => {
   const [activitySubmissions, setActivitySubmissions] = useState([]);
   const [activityGrades, setActivityGrades] = useState([]);
   const [roomGrades, setRoomGrades] = useState([]);
+  const [roomCardMetrics, setRoomCardMetrics] = useState({});
   const [auditRows, setAuditRows] = useState([]);
   const [mySubmission, setMySubmission] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -377,10 +426,10 @@ const ClassesPanel = () => {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isAdjustDialogOpen, setIsAdjustDialogOpen] = useState(false);
   const [isStudentDetailOpen, setIsStudentDetailOpen] = useState(false);
-  const [createForm, setCreateForm] = useState({
-    name: "",
-    description: "",
-  });
+  const suppressRoomCardClickUntilRef = useRef(0);
+  const createStartDateInputRef = useRef(null);
+  const createEndDateInputRef = useRef(null);
+  const [createForm, setCreateForm] = useState(() => buildCreateRoomForm());
   const [activityForm, setActivityForm] = useState({
     title: "",
     description: "",
@@ -434,6 +483,83 @@ const ClassesPanel = () => {
       isMounted = false;
     };
   }, [activeRoomId, toast, user?.role]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const roomList = Array.isArray(contextRooms) ? contextRooms : [];
+
+    if (!roomList.length || !user?.id) {
+      setRoomCardMetrics({});
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const loadRoomCardMetrics = async () => {
+      const entries = await Promise.all(
+        roomList.map(async (room) => {
+          try {
+            const [members, simAccounts, gradebook] = await Promise.all([
+              fetchRoomMembers(room.id),
+              fetchRoomSimAccounts(room.id),
+              fetchRoomGradebook(room.id),
+            ]);
+
+            const rankingRows = members
+              .filter((member) => member.roleInRoom === "student")
+              .map((member) => {
+                const account = simAccounts.find((entry) => entry.userId === member.userId);
+                return {
+                  userId: member.userId,
+                  totalBalance: Number(account?.totalBalance ?? account?.availableBalance ?? 0),
+                };
+              })
+              .sort((left, right) => right.totalBalance - left.totalBalance)
+              .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+            const rankingPosition =
+              rankingRows.find((entry) => entry.userId === user.id)?.rank ?? null;
+            const gradeSource =
+              user.role === "teacher"
+                ? gradebook
+                : gradebook.filter((grade) => grade.userId === user.id);
+            const averageGrade = gradeSource.length
+              ? gradeSource.reduce((sum, grade) => sum + Number(grade.score || 0), 0) / gradeSource.length
+              : null;
+
+            return [
+              room.id,
+              {
+                rankingPosition,
+                averageGrade,
+              },
+            ];
+          } catch (error) {
+            console.error("loadRoomCardMetrics error", room.id, error);
+            return [
+              room.id,
+              {
+                rankingPosition: null,
+                averageGrade: null,
+              },
+            ];
+          }
+        })
+      );
+
+      if (!isMounted) {
+        return;
+      }
+
+      setRoomCardMetrics(Object.fromEntries(entries));
+    };
+
+    void loadRoomCardMetrics();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [contextRooms, user?.id, user?.role]);
 
   const activityItems = useMemo(() => {
     if (activities.length === 0) {
@@ -605,11 +731,128 @@ const ClassesPanel = () => {
     window.setTimeout(() => setCopiedCode(null), 1800);
   };
 
+  const handleCreateRoomCurrencyChange = (nextCurrency) => {
+    setCreateForm((previous) => {
+      const previousDefault = getDefaultRoomBalanceForCurrency(previous.defaultCurrency);
+      const nextDefault = getDefaultRoomBalanceForCurrency(nextCurrency);
+      const numericBalance = Number(previous.defaultBalance);
+      const shouldSyncBalance =
+        !previous.balanceEdited || Number.isNaN(numericBalance) || numericBalance === previousDefault;
+
+      return {
+        ...previous,
+        defaultCurrency: nextCurrency,
+        defaultBalance: shouldSyncBalance ? String(nextDefault) : previous.defaultBalance,
+      };
+    });
+  };
+
+  const handleCreateRoomCoverChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: t("trading.form.invalidFileTypeTitle"),
+        description: t("trading.form.invalidFileTypeDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        title: t("trading.form.fileTooLargeTitle"),
+        description: t("trading.form.fileTooLargeDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setCreateForm((previous) => ({
+        ...previous,
+        coverImageUrl: result,
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const toggleCreateRoomMarket = (marketId) => {
+    setCreateForm((previous) => {
+      const nextMarkets = previous.allowedMarkets.includes(marketId)
+        ? previous.allowedMarkets.filter((entry) => entry !== marketId)
+        : [...previous.allowedMarkets, marketId];
+
+      return {
+        ...previous,
+        allowedMarkets: nextMarkets,
+      };
+    });
+  };
+
+  const handleCreateRoomStartDateChange = (nextStartDate) => {
+    setCreateForm((previous) => ({
+      ...previous,
+      startDate: nextStartDate,
+      endDate:
+        previous.endDate && nextStartDate && previous.endDate < nextStartDate
+          ? nextStartDate
+          : previous.endDate,
+    }));
+  };
+
   const handleCreateRoom = async () => {
     if (!createForm.name.trim()) {
       toast({
         title: t("classes.toasts.roomNameRequiredTitle"),
         description: t("classes.toasts.roomNameRequiredDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!String(createForm.defaultCurrency || "").trim()) {
+      toast({
+        title: t("classes.toasts.currencyRequiredTitle"),
+        description: t("classes.toasts.currencyRequiredDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const parsedBaseBalance = Number(createForm.defaultBalance);
+    if (!Number.isFinite(parsedBaseBalance) || parsedBaseBalance <= 0) {
+      toast({
+        title: t("classes.toasts.baseBalanceInvalidTitle"),
+        description: t("classes.toasts.baseBalanceInvalidDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const normalizedEndDate = String(createForm.endDate || "").trim() || null;
+    if (
+      String(createForm.startDate || "").trim() &&
+      normalizedEndDate &&
+      normalizedEndDate < createForm.startDate
+    ) {
+      toast({
+        title: t("classes.toasts.invalidDateRangeTitle"),
+        description: t("classes.toasts.invalidDateRangeDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!Array.isArray(createForm.allowedMarkets) || createForm.allowedMarkets.length < 1) {
+      toast({
+        title: t("classes.toasts.marketRequiredTitle"),
+        description: t("classes.toasts.marketRequiredDescription"),
         variant: "destructive",
       });
       return;
@@ -622,12 +865,26 @@ const ClassesPanel = () => {
     setIsSubmitting(true);
 
     try {
+      const operationStartDate = String(createForm.startDate || "").trim() || getTodayIsoDate();
       const newRoom = await createRoomForUser({
         name: createForm.name,
         description: createForm.description,
+        defaultBalance: parsedBaseBalance,
+        defaultCurrency: createForm.defaultCurrency,
+        startDate: operationStartDate,
+        endDate: normalizedEndDate,
+        roomSettings: {
+          allowRanking: Boolean(createForm.allowRanking),
+          allowGrades: Boolean(createForm.allowGrades),
+          portfolioVisibility: createForm.portfolioVisibility,
+          allowedMarkets: createForm.allowedMarkets,
+          coverImageUrl: createForm.coverImageUrl,
+          operationStartDate,
+          operationCloseDate: normalizedEndDate,
+        },
       });
 
-      setCreateForm({ name: "", description: "" });
+      setCreateForm(buildCreateRoomForm());
       setIsCreateModalOpen(false);
       toast({
         title: t("classes.toasts.roomCreatedTitle"),
@@ -646,7 +903,8 @@ const ClassesPanel = () => {
   };
 
   const handleJoinRoom = async () => {
-    if (!joinCode.trim() || !user?.id) {
+    const normalizedJoinCode = String(joinCode ?? "");
+    if (!normalizedJoinCode.trim()) {
       toast({
         title: t("classes.toasts.codeRequiredTitle"),
         description: t("classes.toasts.codeRequiredDescription"),
@@ -655,12 +913,19 @@ const ClassesPanel = () => {
       return;
     }
 
+    if (!user?.id) {
+      toast({
+        title: t("classes.toasts.roomJoinErrorTitle"),
+        description: t("auth.login.genericError"),
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const joinedRoom = await joinRoomWithCode({
-        accessCode: joinCode,
-      });
+      const joinedRoom = await joinRoomWithCode(normalizedJoinCode);
 
       setJoinCode("");
       toast({
@@ -677,6 +942,68 @@ const ClassesPanel = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleLeaveRoom = async (room) => {
+    if (!room) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await leaveCurrentUserRoom(room);
+      toast({
+        title: t("settings.rooms.toasts.leftTitle"),
+        description: t("settings.rooms.toasts.leftDescription", { room: room.name }),
+      });
+    } catch (error) {
+      console.error("handleLeaveRoom error", error);
+      toast({
+        title: t("settings.rooms.toasts.leaveFailedTitle"),
+        description: error instanceof Error ? error.message : t("settings.rooms.toasts.genericRetry"),
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRequestDeleteRoom = (room) => {
+    if (!room) {
+      return;
+    }
+
+    suppressRoomCardClick(600);
+    setOpenRoomActionMenuId(null);
+    setRoomPendingDeletion(room);
+  };
+
+  const handleConfirmDeleteRoom = async () => {
+    if (!roomPendingDeletion?.id) {
+      return;
+    }
+
+    setIsDeletingRoom(true);
+    try {
+      await deleteManagedRoom(roomPendingDeletion.id);
+      toast({
+        title: t("classes.toasts.roomDeletedTitle"),
+        description: t("classes.toasts.roomDeletedDescription", { name: roomPendingDeletion.name }),
+      });
+      setRoomPendingDeletion(null);
+    } catch (error) {
+      toast({
+        title: t("classes.toasts.roomDeleteErrorTitle"),
+        description: error instanceof Error ? error.message : t("classes.toasts.tryAgain"),
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingRoom(false);
+    }
+  };
+
+  const suppressRoomCardClick = (milliseconds = 300) => {
+    suppressRoomCardClickUntilRef.current = Date.now() + milliseconds;
   };
 
   const handleCreateActivity = async () => {
@@ -1017,6 +1344,14 @@ const ClassesPanel = () => {
     user?.role === "teacher"
       ? t("classes.rooms.sectionTeacherDescription")
       : t("classes.rooms.sectionStudentDescription");
+  const getRoomCardRankingValue = (roomId) => {
+    const rankingPosition = roomCardMetrics?.[roomId]?.rankingPosition;
+    return rankingPosition ? `#${rankingPosition}` : t("classes.stats.noRanking");
+  };
+  const getRoomCardGradeValue = (roomId) => {
+    const averageGrade = roomCardMetrics?.[roomId]?.averageGrade;
+    return typeof averageGrade === "number" ? averageGrade.toFixed(2) : t("classes.common.noGradesYet");
+  };
   const roomTabs = user?.role === "teacher" ? teacherRoomTabs : studentRoomTabs;
   const studentGradeRows = roomGrades.filter((grade) => grade.userId === user?.id);
   const currentStudentAccount =
@@ -1112,7 +1447,7 @@ const ClassesPanel = () => {
                 <div className="flex w-full gap-2 xl:w-auto">
                   <Input
                     value={joinCode}
-                    onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+                    onChange={(event) => setJoinCode(String(event.target.value ?? "").toUpperCase())}
                     placeholder={t("classes.placeholders.roomCode")}
                     className="h-11 rounded-2xl border-white/10 bg-[#0b1220] text-slate-100 placeholder:text-slate-500 xl:w-[210px]"
                   />
@@ -1139,46 +1474,106 @@ const ClassesPanel = () => {
                   className={`group flex min-h-[300px] cursor-pointer flex-col overflow-hidden rounded-[30px] border bg-[#0c1320] shadow-[0_20px_50px_rgba(0,0,0,0.18)] transition duration-200 hover:-translate-y-1 ${
                     activeRoomId === room.id ? "border-primary/35 ring-1 ring-primary/25" : "border-white/8 hover:border-primary/25"
                   }`}
-                  onClick={() => void selectActiveClass?.(room.id, { navigateToHome: true })}
+                  onClick={(event) => {
+                    if (event.defaultPrevented) {
+                      return;
+                    }
+
+                    if (Date.now() < suppressRoomCardClickUntilRef.current) {
+                      return;
+                    }
+
+                    void selectActiveClass?.(room.id, { navigateToHome: true });
+                  }}
                 >
-                  <div className={`h-32 ${roomAccent(index)}`} />
+                  {room.coverImageUrl ? (
+                    <div
+                      className="h-32 bg-cover bg-center"
+                      style={{ backgroundImage: `linear-gradient(180deg, rgba(8,12,22,0.08), rgba(8,12,22,0.55)), url(${room.coverImageUrl})` }}
+                    />
+                  ) : (
+                    <div className={`h-32 ${roomAccent(index)}`} />
+                  )}
                   <div className="flex flex-1 flex-col justify-between p-5">
                     <div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-300">
-                          {room.state === "inactive"
-                            ? t("classes.cardStates.inactive")
-                            : room.state === "deleted"
-                              ? t("classes.cardStates.deleted")
-                              : user?.role === "teacher"
-                                ? t("classes.cardStates.active")
-                                : t("classes.common.linked")}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {user?.role === "teacher" ? (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 rounded-full border border-white/8 bg-white/[0.04]"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  <MoreHorizontal className="h-4 w-4 text-slate-300" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-48">
-                                <DropdownMenuItem
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    navigate(buildClassEditRoute(room.id));
-                                  }}
-                                >
-                                  {t("classes.actions.editClass")}
-                                </DropdownMenuItem>
+                      <div className="flex items-center justify-end gap-3">
+                        <div
+                          className="flex items-center gap-2"
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            suppressRoomCardClick(350);
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            suppressRoomCardClick(350);
+                          }}
+                        >
+                          <DropdownMenu
+                            open={openRoomActionMenuId === room.id}
+                            onOpenChange={(open) => {
+                              setOpenRoomActionMenuId(open ? room.id : null);
+                              if (open) {
+                                suppressRoomCardClick(450);
+                              }
+                            }}
+                          >
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 rounded-full border border-white/8 bg-white/[0.04]"
+                                onPointerDown={(event) => {
+                                  event.stopPropagation();
+                                  suppressRoomCardClick(350);
+                                }}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  suppressRoomCardClick(350);
+                                }}
+                              >
+                                <MoreHorizontal className="h-4 w-4 text-slate-300" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuPortal>
+                              <DropdownMenuContent align="end" sideOffset={8} className="z-[95] w-48">
+                                {user?.role === "teacher" ? (
+                                  <>
+                                    <DropdownMenuItem
+                                      onSelect={(event) => {
+                                        event.stopPropagation();
+                                        suppressRoomCardClick(500);
+                                        setOpenRoomActionMenuId(null);
+                                        navigate(buildClassEditRoute(room.id));
+                                      }}
+                                    >
+                                      {t("classes.actions.editClass")}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator className="bg-white/10" />
+                                    <DropdownMenuItem
+                                      className="text-red-300 focus:bg-red-500/15 focus:text-red-200"
+                                      onSelect={(event) => {
+                                        event.stopPropagation();
+                                        handleRequestDeleteRoom(room);
+                                      }}
+                                    >
+                                      {t("classes.actions.deleteClass")}
+                                    </DropdownMenuItem>
+                                  </>
+                                ) : (
+                                  <DropdownMenuItem
+                                    onSelect={(event) => {
+                                      event.stopPropagation();
+                                      suppressRoomCardClick(500);
+                                      setOpenRoomActionMenuId(null);
+                                      void handleLeaveRoom(room);
+                                    }}
+                                  >
+                                    {t("settings.rooms.leaveRoom")}
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
-                            </DropdownMenu>
-                          ) : null}
+                            </DropdownMenuPortal>
+                          </DropdownMenu>
                           <span className="rounded-full bg-primary/12 px-3 py-1 font-mono text-xs text-primary">
                             {room.accessCode}
                           </span>
@@ -1208,17 +1603,26 @@ const ClassesPanel = () => {
                       </p>
                     </div>
 
-                    <div className="mt-6 grid grid-cols-2 gap-3 border-t border-white/8 pt-4">
-                      <div className="rounded-2xl bg-white/[0.03] p-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{t("classes.common.baseBalance")}</p>
-                        <p className="mt-2 text-sm font-medium text-slate-200">
-                          {room.defaultCurrency} {room.defaultBalance.toLocaleString()}
+                    <div className="mt-6 space-y-2 border-t border-white/8 pt-4">
+                      <div className="rounded-2xl bg-white/[0.03] px-3 py-2.5">
+                        <p className="text-xs text-slate-400">
+                          {t("classes.common.baseBalance")} = {room.defaultCurrency} {room.defaultBalance.toLocaleString()}
                         </p>
                       </div>
-                      <div className="rounded-2xl bg-white/[0.03] p-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{t("classes.common.access")}</p>
-                        <p className="mt-2 text-sm font-medium text-slate-200">
-                          {activeRoomId === room.id ? t("classes.rooms.activeRoom") : user?.role === "teacher" ? t("classes.actions.openRoom") : t("classes.actions.enter")}
+                      <div
+                        className={`rounded-2xl bg-white/[0.03] px-3 py-2.5 ${room.allowRanking === false ? "opacity-45" : ""}`}
+                        title={room.allowRanking === false ? t("classes.common.featureDisabledTooltip") : undefined}
+                      >
+                        <p className="text-xs text-slate-400">
+                          {t("classes.common.rankingPosition")} = {getRoomCardRankingValue(room.id)}
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-2xl bg-white/[0.03] px-3 py-2.5 ${room.allowGrades === false ? "opacity-45" : ""}`}
+                        title={room.allowGrades === false ? t("classes.common.featureDisabledTooltip") : undefined}
+                      >
+                        <p className="text-xs text-slate-400">
+                          {t("classes.common.grades")} = {getRoomCardGradeValue(room.id)}
                         </p>
                       </div>
                     </div>
@@ -1235,9 +1639,37 @@ const ClassesPanel = () => {
           )}
         </CardContent>
       </Card>
+      {roomPendingDeletion ? (
+        <div className="fixed inset-0 z-[78] flex items-center justify-center bg-slate-950/65 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-[28px] border border-red-500/45 bg-[#1a1114] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+            <h3 className="mt-2 text-2xl font-semibold text-red-100">{t("classes.modals.deleteRoomTitle")}</h3>
+            <p className="mt-3 text-sm font-medium text-red-200">
+              {t("classes.modals.deleteRoomConfirmPrompt", { room: roomPendingDeletion.name })}
+            </p>
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => setRoomPendingDeletion(null)}
+                disabled={isDeletingRoom}
+                className="border border-red-500/30 text-red-100 hover:bg-red-500/15"
+              >
+                {t("common.actions.cancel")}
+              </Button>
+              <Button
+                onClick={handleConfirmDeleteRoom}
+                disabled={isDeletingRoom}
+                className="bg-red-600 text-white hover:bg-red-500"
+              >
+                {isDeletingRoom ? t("classes.common.saving") : t("classes.modals.deleteRoomConfirm")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {isCreateModalOpen ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-[30px] border border-white/10 bg-[#101723] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
+          <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[30px] border border-white/10 bg-[#101723] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{t("classes.modals.newRoomTag")}</p>
@@ -1256,32 +1688,192 @@ const ClassesPanel = () => {
               </button>
             </div>
 
-            <div className="mt-6 space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs uppercase tracking-[0.18em] text-slate-500">{t("classes.modals.classNameLabel")}</label>
-                <Input
-                  value={createForm.name}
-                  onChange={(event) => setCreateForm((previous) => ({ ...previous, name: event.target.value }))}
-                  placeholder={t("classes.modals.classNamePlaceholder")}
-                  className="h-11 rounded-2xl border-white/10 bg-[#0b1220] text-slate-100 placeholder:text-slate-500"
-                />
-              </div>
+            <div className="mt-6 flex-1 overflow-y-auto pr-1">
+              <div className="grid gap-5 lg:grid-cols-3">
+                <div className="space-y-4 lg:col-span-2">
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-[0.18em] text-slate-500">{t("classes.modals.classNameLabel")}</label>
+                    <Input
+                      value={createForm.name}
+                      onChange={(event) => setCreateForm((previous) => ({ ...previous, name: event.target.value }))}
+                      placeholder={t("classes.modals.classNamePlaceholder")}
+                      className="h-11 rounded-2xl border-white/10 bg-[#0b1220] text-slate-100 placeholder:text-slate-500"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <label className="text-xs uppercase tracking-[0.18em] text-slate-500">{t("classes.modals.descriptionLabel")}</label>
-                <Textarea
-                  value={createForm.description}
-                  onChange={(event) =>
-                    setCreateForm((previous) => ({ ...previous, description: event.target.value }))
-                  }
-                  placeholder={t("classes.modals.roomDescriptionPlaceholder")}
-                  rows={6}
-                  className="rounded-2xl border-white/10 bg-[#0b1220] text-slate-100 placeholder:text-slate-500"
-                />
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-[0.18em] text-slate-500">{t("classes.modals.descriptionLabel")}</label>
+                    <Textarea
+                      value={createForm.description}
+                      onChange={(event) =>
+                        setCreateForm((previous) => ({ ...previous, description: event.target.value }))
+                      }
+                      placeholder={t("classes.modals.roomDescriptionPlaceholder")}
+                      rows={4}
+                      className="rounded-2xl border-white/10 bg-[#0b1220] text-slate-100 placeholder:text-slate-500"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Moneda *</label>
+                      <select
+                        value={createForm.defaultCurrency}
+                        onChange={(event) => handleCreateRoomCurrencyChange(event.target.value)}
+                        className="h-11 w-full rounded-2xl border border-white/10 bg-[#0b1220] px-3 text-slate-100"
+                      >
+                        {ROOM_CURRENCY_OPTIONS.map((currency) => (
+                          <option key={currency.code} value={currency.code}>
+                            {currency.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Saldo inicial *</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={createForm.defaultBalance}
+                        onChange={(event) =>
+                          setCreateForm((previous) => ({
+                            ...previous,
+                            defaultBalance: event.target.value,
+                            balanceEdited: true,
+                          }))
+                        }
+                        className="h-11 rounded-2xl border-white/10 bg-[#0b1220] text-slate-100 placeholder:text-slate-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Fecha de inicio</label>
+                      <div className="relative">
+                        <Input
+                          type="date"
+                          ref={createStartDateInputRef}
+                          value={createForm.startDate}
+                          onChange={(event) => handleCreateRoomStartDateChange(event.target.value)}
+                          className={gtlDateInputClass}
+                        />
+                        <button
+                          type="button"
+                          className={gtlCalendarButtonClass}
+                          onClick={() => openNativeDatePicker(createStartDateInputRef.current)}
+                          aria-label="Abrir calendario de fecha de inicio"
+                        >
+                          <CalendarClock className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Fecha de cierre de operaciones</label>
+                      <div className="relative">
+                        <Input
+                          type="date"
+                          ref={createEndDateInputRef}
+                          value={createForm.endDate}
+                          min={createForm.startDate || undefined}
+                          onChange={(event) => setCreateForm((previous) => ({ ...previous, endDate: event.target.value }))}
+                          className={gtlDateInputClass}
+                        />
+                        <button
+                          type="button"
+                          className={gtlCalendarButtonClass}
+                          onClick={() => openNativeDatePicker(createEndDateInputRef.current)}
+                          aria-label="Abrir calendario de fecha de cierre"
+                        >
+                          <CalendarClock className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Mercados habilitados</label>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {ROOM_MARKET_OPTIONS.map((market) => (
+                        <label
+                          key={market.id}
+                          className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200"
+                        >
+                          <input
+                            type="checkbox"
+                            className={gtlCheckboxClass}
+                            checked={createForm.allowedMarkets.includes(market.id)}
+                            onChange={() => toggleCreateRoomMarket(market.id)}
+                          />
+                          {market.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <aside className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 lg:col-span-1">
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Otras preferencias</p>
+                  <div className="mt-4 space-y-3">
+                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0b1220]/70 px-3 py-2.5 text-sm text-slate-200">
+                      <input
+                        type="checkbox"
+                        className={gtlCheckboxClass}
+                        checked={createForm.allowRanking}
+                        onChange={(event) =>
+                          setCreateForm((previous) => ({ ...previous, allowRanking: event.target.checked }))
+                        }
+                      />
+                      Permitir ranking
+                    </label>
+                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0b1220]/70 px-3 py-2.5 text-sm text-slate-200">
+                      <input
+                        type="checkbox"
+                        className={gtlCheckboxClass}
+                        checked={createForm.allowGrades}
+                        onChange={(event) =>
+                          setCreateForm((previous) => ({ ...previous, allowGrades: event.target.checked }))
+                        }
+                      />
+                      Permitir calificaciones
+                    </label>
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Visibilidad del portafolio</label>
+                      <select
+                        value={createForm.portfolioVisibility}
+                        onChange={(event) =>
+                          setCreateForm((previous) => ({ ...previous, portfolioVisibility: event.target.value }))
+                        }
+                        className="h-11 w-full rounded-2xl border border-white/10 bg-[#0b1220] px-3 text-slate-100"
+                      >
+                        <option value="teacher_only">Solo docente</option>
+                        <option value="public">Visible para estudiantes</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Portada de la sala (opcional)</label>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleCreateRoomCoverChange}
+                        className="h-11 rounded-2xl border-white/10 bg-[#0b1220] text-slate-100"
+                      />
+                      {createForm.coverImageUrl ? (
+                        <img
+                          src={createForm.coverImageUrl}
+                          alt="Vista previa de portada"
+                          className="h-24 w-full rounded-2xl border border-white/10 object-cover"
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                </aside>
               </div>
             </div>
 
-            <div className="mt-6 flex items-center justify-end gap-3">
+            <div className="mt-5 flex items-center justify-end gap-3 border-t border-white/10 pt-4">
               <Button variant="ghost" onClick={() => setIsCreateModalOpen(false)}>
                 {t("common.actions.cancel")}
               </Button>
@@ -1375,6 +1967,7 @@ const ClassesPanel = () => {
                 <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
                   <input
                     type="checkbox"
+                    className={gtlCheckboxClass}
                     checked={activityForm.isGradable}
                     onChange={(event) =>
                       setActivityForm((previous) => ({ ...previous, isGradable: event.target.checked }))

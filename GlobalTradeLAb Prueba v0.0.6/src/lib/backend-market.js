@@ -167,7 +167,8 @@ export const getQuoteFromBackend = async (symbol) => {
   }
 
   const response = await fetch(
-    `${getMarketBackendUrl("/api/market/quote")}?symbol=${encodeURIComponent(backendSymbol)}`
+    `${getMarketBackendUrl("/api/market/quote")}?symbol=${encodeURIComponent(backendSymbol)}`,
+    { cache: "no-store" }
   );
 
   if (!response.ok) {
@@ -198,7 +199,8 @@ export const getQuotesFromBackend = async (symbols) => {
   const response = await fetch(
     `${getMarketBackendUrl("/api/market/quotes")}?symbols=${encodeURIComponent(
       backendSymbols.map((entry) => entry.backendSymbol).join(",")
-    )}`
+    )}`,
+    { cache: "no-store" }
   );
 
   if (!response.ok) {
@@ -225,6 +227,30 @@ export const getQuotesFromBackend = async (symbols) => {
     ...result,
     localSymbol: backendSymbols[index]?.localSymbol ?? result.requestedSymbol,
   }));
+};
+
+export const getLastCandleMarketFromBackend = async ({ limit = 300, source = "twelvedata" } = {}) => {
+  const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 1000) : 300;
+  const query = new URLSearchParams({
+    limit: String(safeLimit),
+    source: String(source || "twelvedata"),
+  });
+  const response = await fetch(
+    `${getMarketBackendUrl("/api/market/last-candle-market")}?${query.toString()}`,
+    { cache: "no-store" }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Backend last-candle-market request failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+
+  if (!payload?.ok || !Array.isArray(payload.rows)) {
+    throw new Error(payload?.error || "Last candle market backend returned an error");
+  }
+
+  return payload.rows;
 };
 
 export const getMarketHistoryFromBackend = async (symbols, limit = 300, timeframe = DEFAULT_TIMEFRAME) => {
@@ -257,7 +283,8 @@ export const getMarketHistoryFromBackend = async (symbols, limit = 300, timefram
     const response = await fetch(
       `${getMarketBackendUrl("/api/market/history/base-candles")}?symbols=${encodeURIComponent(
         backendSymbols.map((entry) => entry.backendSymbol).join(",")
-      )}&limit=${limit}&timeframe=${encodeURIComponent(timeframe)}`
+      )}&limit=${limit}&timeframe=${encodeURIComponent(timeframe)}`,
+      { cache: "no-store" }
     );
 
     if (!response.ok) {
@@ -320,7 +347,8 @@ export const getMarketOhlcFromBackend = async ({
   }
 
   const response = await fetch(
-    `${getMarketBackendUrl("/api/market/ohlc/base-candles")}?${searchParams.toString()}`
+    `${getMarketBackendUrl("/api/market/ohlc/base-candles")}?${searchParams.toString()}`,
+    { cache: "no-store" }
   );
 
   if (!response.ok) {
@@ -352,7 +380,8 @@ export const getMarketIndicatorsFromBackend = async ({
   const response = await fetch(
     `${getMarketBackendUrl("/api/market/indicators")}?symbol=${encodeURIComponent(
       backendSymbol
-    )}&timeframe=${encodeURIComponent(backendTimeframe)}&limit=${limit}&emaPeriod=${emaPeriod}`
+    )}&timeframe=${encodeURIComponent(backendTimeframe)}&limit=${limit}&emaPeriod=${emaPeriod}`,
+    { cache: "no-store" }
   );
 
   if (!response.ok) {

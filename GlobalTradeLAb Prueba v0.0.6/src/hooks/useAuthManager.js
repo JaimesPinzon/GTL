@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   changePassword as changePasswordRequest,
   listSessions,
+  loginWithGoogleOAuth,
   loginWithPassword,
   logoutAllSessions,
   logoutSession,
@@ -11,7 +12,6 @@ import {
   registerWithPassword,
 } from "@/lib/auth-api";
 import {
-  DEFAULT_BALANCE,
   buildTradingUser,
   persistClientSecurityExtras,
   readClientSecurityExtras,
@@ -111,6 +111,22 @@ export const useAuthManager = ({
     },
     [setConnectionIssue, setCurrentUserId, syncUserFromAuth, t, toast]
   );
+
+  const loginWithGoogle = useCallback(async () => {
+    try {
+      setConnectionIssue(null);
+      await loginWithGoogleOAuth();
+      return { success: true, redirecting: true };
+    } catch (error) {
+      const friendlyMessage = getFriendlyAuthErrorMessage(error, t);
+      toast({
+        title: t("auth.login.errorTitle"),
+        description: friendlyMessage,
+        variant: "destructive",
+      });
+      return { success: false };
+    }
+  }, [setConnectionIssue, t, toast]);
 
   const logout = useCallback(async () => {
     clearSessionState();
@@ -232,8 +248,6 @@ export const useAuthManager = ({
         ...data.user,
         user_metadata: {
           ...data.user.user_metadata,
-          balance: DEFAULT_BALANCE,
-          initialBalance: DEFAULT_BALANCE,
         },
         created_at: data.user.created_at,
         last_sign_in_at: data.user.last_sign_in_at,
@@ -242,8 +256,6 @@ export const useAuthManager = ({
       const profile = buildTradingUser(authUser, undefined, {
         name: userData.name,
         role: userData.role,
-        balance: DEFAULT_BALANCE,
-        initialBalance: DEFAULT_BALANCE,
         positions: [],
         transactions: [],
       });
@@ -276,6 +288,7 @@ export const useAuthManager = ({
   return {
     changePassword,
     login,
+    loginWithGoogle,
     logout,
     logoutAllDevices,
     refreshSecuritySessions,

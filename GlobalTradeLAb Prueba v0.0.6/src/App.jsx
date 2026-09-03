@@ -389,6 +389,7 @@ function AppContent() {
                 />
               </Route>
               <Route path="settings" element={<SettingsRouteElement />} />
+              <Route path="learn" element={<LearnPage />} />
               <Route
                 path="support"
                 element={

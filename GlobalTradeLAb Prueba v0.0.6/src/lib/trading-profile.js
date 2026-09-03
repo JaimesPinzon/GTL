@@ -1,4 +1,4 @@
-export const DEFAULT_BALANCE = 10000;
+export const DEFAULT_BALANCE = 0;
 export const DEFAULT_APP_HOME_PATH = "/plataforma";
 export const CLIENT_PROFILE_STORAGE_KEY = "gtlProfileExtras";
 export const CLIENT_SECURITY_STORAGE_KEY = "gtlSecurityExtras";
@@ -110,6 +110,7 @@ export const CLIENT_PREFERENCES_DEFAULTS = {
   defaultDashboardView: "technical",
   tablePageSize: "10",
   notificationSounds: true,
+  contextualHelpMessages: true,
 };
 
 export const CLIENT_ACCESSIBILITY_DEFAULTS = {
@@ -617,18 +618,22 @@ export const registerSecurityLoginEvent = (userId, metadata = {}) => {
 
 export const buildTradingUser = (authUser, existingUser = {}, overrides = {}) => {
   const metadata = authUser?.user_metadata || {};
+  const fallbackBalance =
+    overrides.balance ??
+    existingUser.balance ??
+    DEFAULT_BALANCE;
+  const fallbackInitialBalance =
+    overrides.initialBalance ??
+    existingUser.initialBalance ??
+    fallbackBalance;
 
   return {
     id: authUser?.id || existingUser.id || overrides.id,
     name: overrides.name ?? metadata.name ?? existingUser.name ?? "",
     email: authUser?.email || existingUser.email || overrides.email || "",
     role: overrides.role ?? metadata.role ?? existingUser.role ?? "student",
-    balance: overrides.balance ?? existingUser.balance ?? metadata.balance ?? DEFAULT_BALANCE,
-    initialBalance:
-      overrides.initialBalance ??
-      existingUser.initialBalance ??
-      metadata.initialBalance ??
-      DEFAULT_BALANCE,
+    balance: fallbackBalance,
+    initialBalance: fallbackInitialBalance,
     alias: overrides.alias ?? existingUser.alias ?? "",
     lastName: overrides.lastName ?? existingUser.lastName ?? "",
     dob: overrides.dob ?? existingUser.dob ?? "",

@@ -90,7 +90,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return withAuthErrors(request, async () => {
         if (action === "login") {
             validateAllowedOrigin(request);
-            validateCsrfRequest(request);
+            validateCsrfRequest(request, { allowHeaderOnly: true });
             const body = await parseLoginBody(request);
             const result = await loginUser({
                 email: body.email,
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
         if (action === "register") {
             validateAllowedOrigin(request);
-            validateCsrfRequest(request);
+            validateCsrfRequest(request, { allowHeaderOnly: true });
             const body = await parseRegisterBody(request);
             const result = await registerUser({
                 name: body.name,

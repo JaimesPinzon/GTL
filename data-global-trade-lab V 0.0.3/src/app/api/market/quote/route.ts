@@ -88,6 +88,20 @@ export async function GET(request: Request) {
             autoRefresh = await refreshTrackedQuotesIfDue({ symbols: [symbol] });
             latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
             snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || null;
+
+            if (
+                isSnapshotExpired(snapshot) &&
+                autoRefresh?.skipped &&
+                autoRefresh.reason === "refresh_window_locked_or_not_due"
+            ) {
+                autoRefresh = await refreshTrackedQuotesIfDue({
+                    symbols: [symbol],
+                    force: true,
+                });
+
+                latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
+                snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || null;
+            }
         }
 
         if (snapshot && Number.isFinite(snapshot.price) && snapshot.price > 0) {

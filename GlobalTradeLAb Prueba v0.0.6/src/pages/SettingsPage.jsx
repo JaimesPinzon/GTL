@@ -28,6 +28,7 @@ import AccessibilitySettingsSection from "@/components/settings/AccessibilitySet
 import PrivacySettingsSection from "@/components/settings/PrivacySettingsSection";
 import SettingsActionBar from "@/components/SettingsActionBar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useContextualHelpMessages } from "@/hooks/useContextualHelpMessages";
 
 const SectionShell = ({ icon: Icon, title, description, children }) => (
   <Card className="glass-card mx-auto w-full max-w-5xl">
@@ -38,7 +39,7 @@ const SectionShell = ({ icon: Icon, title, description, children }) => (
         </span>
         {title}
       </CardTitle>
-      <CardDescription className="text-base">{description}</CardDescription>
+      <CardDescription className="settings-context-help text-base">{description}</CardDescription>
     </CardHeader>
     <CardContent>{children}</CardContent>
   </Card>
@@ -53,7 +54,7 @@ const PlaceholderSection = ({ sectionMeta, t }) => {
         {bullets.map((item) => (
           <div key={item} className="rounded-2xl border border-border bg-background/50 p-5">
             <p className="text-sm font-semibold text-foreground">{item}</p>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="settings-context-help mt-2 text-sm text-muted-foreground">
               {t("settings.placeholders.pendingDescription")}
             </p>
           </div>
@@ -65,6 +66,7 @@ const PlaceholderSection = ({ sectionMeta, t }) => {
 
 const SettingsPage = ({ currentTheme, setThemeMode }) => {
   const { t } = useTranslation();
+  const showContextualHelpMessages = useContextualHelpMessages();
   const sections = useMemo(
     () => [
       {
@@ -219,7 +221,7 @@ const SettingsPage = ({ currentTheme, setThemeMode }) => {
         />
       </div>
 
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-8">
+      <div className={`mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-8 ${showContextualHelpMessages ? "" : "settings-context-help-hidden"}`}>
         {activeSection === "profile" ? (
           <ProfileSettingsSection />
         ) : activeSection === "account" ? (

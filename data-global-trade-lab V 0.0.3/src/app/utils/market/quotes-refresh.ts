@@ -80,6 +80,30 @@ const isSuccessfulQuote = (quote: RefreshableQuote) => {
     return Number.isFinite(price) && (price as number) > 0;
 };
 
+const getMissingSnapshotSymbols = async (symbols: string[]) => {
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+        return [];
+    }
+
+    const { data, error } = await supabaseAdmin
+        .from("last_candle_market")
+        .select("symbol")
+        .eq("source", SNAPSHOT_SOURCE)
+        .in("symbol", symbols);
+
+    if (error) {
+        return symbols;
+    }
+
+    const existingSymbols = new Set(
+        (data || [])
+            .map((row) => String((row as { symbol?: string }).symbol || "").trim().toUpperCase())
+            .filter(Boolean)
+    );
+
+    return symbols.filter((symbol) => !existingSymbols.has(symbol));
+};
+
 export async function refreshTrackedQuotesIfDue({
     symbols,
     force = false,
@@ -113,11 +137,17 @@ export async function refreshTrackedQuotesIfDue({
     let lockBypassed = false;
 
     if (!force) {
+        const missingSnapshotSymbols = await getMissingSnapshotSymbols(resolvedSymbols);
         try {
             lockAcquired = await acquireMarketQuotesRefreshLock({
                 minIntervalMs,
             });
         } catch {
+            lockAcquired = true;
+            lockBypassed = true;
+        }
+
+        if (!lockAcquired && missingSnapshotSymbols.length > 0) {
             lockAcquired = true;
             lockBypassed = true;
         }
