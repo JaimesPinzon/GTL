@@ -17,6 +17,7 @@ import {
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Login = lazy(() => import("@/pages/Login"));
 const Register = lazy(() => import("@/pages/Register"));
+const LearnPage = lazy(() => import("@/pages/LearnPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const HelpPage = lazy(() => import("@/pages/HelpPage"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
@@ -355,6 +356,14 @@ function AppContent() {
                 element={
                   <PageScroller>
                     <ClassesPanel />
+                  </PageScroller>
+                }
+              />
+              <Route
+                path="learn"
+                element={
+                  <PageScroller>
+                    <LearnPage />
                   </PageScroller>
                 }
               />

@@ -64,6 +64,12 @@ const Sidebar = () => {
         path: GLOBAL_APP_PATHS.classes,
       },
       {
+        id: "learn",
+        icon: BookOpen,
+        label: t("navigation.sidebar.learn"),
+        path: GLOBAL_APP_PATHS.learn,
+      },
+      {
         id: "settings",
         icon: Settings,
         label: t("navigation.sidebar.settings"),

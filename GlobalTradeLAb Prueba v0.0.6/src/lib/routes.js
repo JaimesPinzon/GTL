@@ -5,6 +5,7 @@ export const LEGACY_APP_HOME_PATH = "/plataforma";
 
 export const GLOBAL_APP_PATHS = {
   classes: `${APP_ROOT_PATH}/classes`,
+  learn: `${APP_ROOT_PATH}/learn`,
   settings: `${APP_ROOT_PATH}/settings`,
   support: `${APP_ROOT_PATH}/support`,
 };
