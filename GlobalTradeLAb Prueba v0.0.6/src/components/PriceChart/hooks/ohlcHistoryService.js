@@ -48,10 +48,30 @@ export function normalizeOhlc(ohlcData = []) {
         ? ohlcData.data
         : [];
 
-  return series.map((point) => ({
-    ...point,
-    time: normalizeTimestampToUnixSeconds(point.time ?? point.timestamp ?? point.date),
-  }));
+  return series
+    .map((point) => {
+      const time = normalizeTimestampToUnixSeconds(point.time ?? point.timestamp ?? point.date);
+      const open = Number(point.open);
+      const high = Number(point.high);
+      const low = Number(point.low);
+      const close = Number(point.close);
+
+      if (!Number.isFinite(time) || ![open, high, low, close].every(Number.isFinite)) {
+        return null;
+      }
+
+      return {
+        ...point,
+        time,
+        open,
+        high,
+        low,
+        close,
+        value: close,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
 }
 
 export async function fetchOhlc({ symbol, timeframe, limit, from = null, to = null }) {

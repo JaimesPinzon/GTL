@@ -275,14 +275,23 @@ export const convertToHeikinAshi = (data) => {
 
 export const formatPriceDataForChart = (marketSymbolData, chartType) => {
   if (!marketSymbolData || marketSymbolData.length === 0) return [];
-  let dataToSet = marketSymbolData.map(item => ({
-    time: item.time,
-    open: item.open,
-    high: item.high,
-    low: item.low,
-    close: item.close,
-    value: item.close, 
-  }));
+  const dataByTime = new Map();
+
+  marketSymbolData.forEach((item) => {
+    const time = Number(item?.time);
+    const open = Number(item?.open);
+    const high = Number(item?.high);
+    const low = Number(item?.low);
+    const close = Number(item?.close);
+
+    if (!Number.isFinite(time) || ![open, high, low, close].every(Number.isFinite)) {
+      return;
+    }
+
+    dataByTime.set(time, { time, open, high, low, close, value: close });
+  });
+
+  let dataToSet = Array.from(dataByTime.values()).sort((left, right) => left.time - right.time);
 
   if (chartType === 'heikinashi') {
     dataToSet = convertToHeikinAshi(dataToSet);
