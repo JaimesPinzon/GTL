@@ -254,6 +254,34 @@ export async function readBaseCandlesForTimeframe({
     const requestedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(limit, 5000)) : 300;
     const fetchLimit = Math.max(requestedLimit * config.aggregateSize, requestedLimit);
     const isMinuteBaseInterval = baseInterval === "1m";
+    let usedTwelveData = false;
+    let liveCandles: ReturnType<typeof buildCandlesFromTimeSeriesValues> = [];
+
+    const liveSeriesPromise = shouldUseLiveTimeSeries(baseInterval)
+        ? getTwelveDataTimeSeries(
+              symbol,
+              getTwelveDataIntervalForBase(baseInterval) ?? "1min",
+              Math.min(1500, Math.max(120, requestedLimit * config.aggregateSize))
+          )
+        : Promise.resolve(null);
+
+    try {
+        const liveSeries = await liveSeriesPromise;
+        if (liveSeries) {
+            liveCandles = buildCandlesFromTimeSeriesValues(
+                liveSeries.values ?? [],
+                liveSeries.meta?.currency ?? "USD",
+                liveSeries.meta?.exchange ?? null
+            );
+            usedTwelveData = liveCandles.length > 0;
+        }
+    } catch (liveSeriesError) {
+        console.error("initial TwelveData time_series error", {
+            symbol,
+            baseInterval,
+            error: liveSeriesError,
+        });
+    }
 
     // Serve stored candles first to keep chart responses fast. A storage failure
     // must not prevent the live TwelveData fallback from serving the chart.
@@ -275,8 +303,9 @@ export async function readBaseCandlesForTimeframe({
         });
     }
 
-    // If empty, fetch from Yahoo immediately so first chart load has data.
-    if (rawRows.length === 0) {
+    // Prefer the live series immediately when storage is unavailable. Yahoo is
+    // still fetched below for persistence, but must not delay the first render.
+    if (rawRows.length === 0 && liveCandles.length === 0) {
         try {
             const fetchOptions =
                 isMinuteBaseInterval
@@ -343,32 +372,13 @@ export async function readBaseCandlesForTimeframe({
         baseInterval,
         buildCandlesFromStoredRows(rawRows)
     );
-    let usedTwelveData = false;
-
     // Merge TwelveData live candles for intraday freshness.
-    if (shouldUseLiveTimeSeries(baseInterval)) {
+    if (liveCandles.length > 0) {
         try {
-            const liveInterval = getTwelveDataIntervalForBase(baseInterval);
-            if (liveInterval) {
-                const liveSeries = await getTwelveDataTimeSeries(
-                    symbol,
-                    liveInterval,
-                    Math.min(1500, Math.max(120, requestedLimit * config.aggregateSize))
-                );
-
-                const liveCandles = buildCandlesFromTimeSeriesValues(
-                    liveSeries.values ?? [],
-                    liveSeries.meta?.currency ?? normalizedRows[normalizedRows.length - 1]?.currency ?? "USD",
-                    liveSeries.meta?.exchange ?? normalizedRows[normalizedRows.length - 1]?.exchange ?? null
-                );
-
-                usedTwelveData = liveCandles.length > 0;
-
-                normalizedRows = sanitizeBaseCandles(
-                    baseInterval,
-                    mergeStoredCandlesWithLiveCandles(normalizedRows, liveCandles)
-                );
-            }
+            normalizedRows = sanitizeBaseCandles(
+                baseInterval,
+                mergeStoredCandlesWithLiveCandles(normalizedRows, liveCandles)
+            );
         } catch (liveSeriesError) {
             console.error("getTwelveDataTimeSeries (base-candles) error", liveSeriesError);
         }
