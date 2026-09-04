@@ -255,14 +255,25 @@ export async function readBaseCandlesForTimeframe({
     const fetchLimit = Math.max(requestedLimit * config.aggregateSize, requestedLimit);
     const isMinuteBaseInterval = baseInterval === "1m";
 
-    // Serve stored candles first to keep chart responses fast.
-    let rawRows = await readStoredRows({
-        symbol,
-        baseInterval,
-        from,
-        to,
-        fetchLimit,
-    });
+    // Serve stored candles first to keep chart responses fast. A storage failure
+    // must not prevent the live TwelveData fallback from serving the chart.
+    let rawRows: MarketCandleRow[] = [];
+
+    try {
+        rawRows = await readStoredRows({
+            symbol,
+            baseInterval,
+            from,
+            to,
+            fetchLimit,
+        });
+    } catch (storageError) {
+        console.error("readStoredRows error", {
+            symbol,
+            baseInterval,
+            error: storageError,
+        });
+    }
 
     // If empty, fetch from Yahoo immediately so first chart load has data.
     if (rawRows.length === 0) {
@@ -273,13 +284,21 @@ export async function readBaseCandlesForTimeframe({
                     : {};
             await fetchAndStoreYahooBaseCandles(symbol, baseInterval, fetchOptions);
 
-            rawRows = await readStoredRows({
-                symbol,
-                baseInterval,
-                from,
-                to,
-                fetchLimit,
-            });
+            try {
+                rawRows = await readStoredRows({
+                    symbol,
+                    baseInterval,
+                    from,
+                    to,
+                    fetchLimit,
+                });
+            } catch (storageError) {
+                console.error("readStoredRows after Yahoo fetch error", {
+                    symbol,
+                    baseInterval,
+                    error: storageError,
+                });
+            }
         } catch (yahooError) {
             console.error("initial fetchAndStoreYahooBaseCandles error", yahooError);
         }
@@ -295,13 +314,21 @@ export async function readBaseCandlesForTimeframe({
                     : {};
             await fetchAndStoreYahooBaseCandles(symbol, baseInterval, fetchOptions);
 
-            rawRows = await readStoredRows({
-                symbol,
-                baseInterval,
-                from,
-                to,
-                fetchLimit,
-            });
+            try {
+                rawRows = await readStoredRows({
+                    symbol,
+                    baseInterval,
+                    from,
+                    to,
+                    fetchLimit,
+                });
+            } catch (storageError) {
+                console.error("readStoredRows after Yahoo backfill error", {
+                    symbol,
+                    baseInterval,
+                    error: storageError,
+                });
+            }
         } catch (yahooBackfillError) {
             console.error("sparse fetchAndStoreYahooBaseCandles backfill error", yahooBackfillError);
         }
@@ -316,6 +343,7 @@ export async function readBaseCandlesForTimeframe({
         baseInterval,
         buildCandlesFromStoredRows(rawRows)
     );
+    let usedTwelveData = false;
 
     // Merge TwelveData live candles for intraday freshness.
     if (shouldUseLiveTimeSeries(baseInterval)) {
@@ -333,6 +361,8 @@ export async function readBaseCandlesForTimeframe({
                     liveSeries.meta?.currency ?? normalizedRows[normalizedRows.length - 1]?.currency ?? "USD",
                     liveSeries.meta?.exchange ?? normalizedRows[normalizedRows.length - 1]?.exchange ?? null
                 );
+
+                usedTwelveData = liveCandles.length > 0;
 
                 normalizedRows = sanitizeBaseCandles(
                     baseInterval,
@@ -352,7 +382,11 @@ export async function readBaseCandlesForTimeframe({
     return {
         symbol,
         timeframe,
-        source: YAHOO_CANDLES_TABLE_NAME,
+        source: usedTwelveData
+            ? rawRows.length > 0
+                ? "yahoo_plus_twelvedata"
+                : "twelvedata_live_fallback"
+            : YAHOO_CANDLES_TABLE_NAME,
         baseInterval: config.baseInterval,
         aggregateSize: config.aggregateSize,
         rowsRead: rawRows.length,
