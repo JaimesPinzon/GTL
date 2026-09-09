@@ -38,6 +38,7 @@ export const ClassMarketContextProvider = ({ children }) => {
   const { activeClassId, hasActiveClass } = useClassContext() || {};
   const [selectedSymbol, setSelectedSymbol] = useState("BTCUSD");
   const [marketData, setMarketData] = useState({});
+  const [quoteData, setQuoteData] = useState({});
   const [isMarketLoading, setIsMarketLoading] = useState(false);
 
   const isOperationalRoute = useMemo(
@@ -53,6 +54,7 @@ export const ClassMarketContextProvider = ({ children }) => {
   useEffect(() => {
     if (!shouldLoadMarket) {
       setMarketData({});
+      setQuoteData({});
       setIsMarketLoading(false);
       return;
     }
@@ -70,6 +72,14 @@ export const ClassMarketContextProvider = ({ children }) => {
         if (!isMounted) {
           return;
         }
+
+        setQuoteData(
+          Object.fromEntries(
+            latestQuotes
+              .filter((entry) => entry.ok && entry.data)
+              .map((entry) => [entry.localSymbol, entry.data])
+          )
+        );
 
         const historicalResults = await getMarketHistoryFromBackend(
           SYMBOL_TEMPLATES.map((symbol) => symbol.id),
@@ -92,6 +102,7 @@ export const ClassMarketContextProvider = ({ children }) => {
         console.error("loadClassMarketSnapshot error", error);
         if (isMounted) {
           setMarketData({});
+          setQuoteData({});
         }
       } finally {
         if (isMounted) {
@@ -121,6 +132,16 @@ export const ClassMarketContextProvider = ({ children }) => {
         console.error("refreshClassQuotes error", error);
         return;
       }
+
+      const validQuotes = quoteEntries.filter((entry) => {
+        const numericPrice = Number.parseFloat(entry.data?.close);
+        return entry.ok && entry.data && Number.isFinite(numericPrice) && numericPrice > 0;
+      });
+
+      setQuoteData((currentQuotes) => ({
+        ...currentQuotes,
+        ...Object.fromEntries(validQuotes.map((entry) => [entry.localSymbol, entry.data])),
+      }));
 
       setMarketData((currentData) => {
         const nextData = { ...currentData };
@@ -170,6 +191,14 @@ export const ClassMarketContextProvider = ({ children }) => {
   }, [shouldLoadMarket]);
 
   const getCurrentPrice = (symbolId) => {
+    const quotePrice = Number.parseFloat(
+      quoteData[symbolId]?.close ?? quoteData[symbolId]?.price
+    );
+
+    if (Number.isFinite(quotePrice) && quotePrice > 0) {
+      return quotePrice;
+    }
+
     if (!marketData[symbolId] || marketData[symbolId].length === 0) {
       return 0;
     }
@@ -178,6 +207,14 @@ export const ClassMarketContextProvider = ({ children }) => {
   };
 
   const calculateChange = (symbolId) => {
+    const quote = quoteData[symbolId];
+    const quotePrice = Number.parseFloat(quote?.close ?? quote?.price);
+    const quoteChange = Number.parseFloat(quote?.percent_change);
+
+    if (Number.isFinite(quotePrice) && Number.isFinite(quoteChange)) {
+      return quoteChange;
+    }
+
     if (!marketData[symbolId] || marketData[symbolId].length < 2) {
       return 0;
     }
@@ -202,7 +239,7 @@ export const ClassMarketContextProvider = ({ children }) => {
         price: getCurrentPrice(symbol.id),
         change: calculateChange(symbol.id),
       })),
-    [marketData, t]
+    [marketData, quoteData, t]
   );
 
   const value = useMemo(
@@ -211,11 +248,12 @@ export const ClassMarketContextProvider = ({ children }) => {
       initialSymbols: SYMBOL_TEMPLATES,
       isMarketLoading,
       marketData,
+      quoteData,
       selectedSymbol,
       setSelectedSymbol,
       symbols,
     }),
-    [isMarketLoading, marketData, selectedSymbol, symbols]
+    [isMarketLoading, marketData, quoteData, selectedSymbol, symbols]
   );
 
   return <ClassMarketContext.Provider value={value}>{children}</ClassMarketContext.Provider>;

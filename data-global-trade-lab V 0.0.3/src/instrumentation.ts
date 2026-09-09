@@ -5,5 +5,7 @@ export async function register() {
         return;
     }
 
-    await warmTrackedMarketData();
+    void warmTrackedMarketData().catch((error) => {
+        console.error("market warmup startup error", error);
+    });
 }
