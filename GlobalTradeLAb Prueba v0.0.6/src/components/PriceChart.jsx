@@ -33,10 +33,14 @@ const PriceChart = ({
   const renderedDataRef = useRef([]);
   const syncMacdVisibilityRef = useRef(() => {});
 
-  const { marketData, selectedSymbol, initialSymbols, preferencesState, user } = useTradingWorkspace();
+  const {
+    selectedSymbol,
+    initialSymbols,
+    preferencesState,
+    user,
+  } = useTradingWorkspace();
   const currentSymbolInfo = initialSymbols.find((symbol) => symbol.id === selectedSymbol);
   const currency = currentSymbolInfo ? currentSymbolInfo.currency : "USD";
-  const selectedMarketData = marketData[selectedSymbol] || [];
   const preferredTimezone = preferencesState?.timezone || user?.timezone || null;
   const chartTimezone = preferredTimezone;
   const chartLocale = user?.language === "en" ? "en-US" : "es-CO";
@@ -57,7 +61,7 @@ const PriceChart = ({
     chartType,
     currentTimeframe,
     preferredTimezone,
-    selectedMarketData,
+    selectedMarketData: [],
     selectedSymbol,
   });
 

@@ -1,21 +1,12 @@
-import { getProviderFreshnessMs } from "@/app/utils/market/timeframes";
 import {
     aggregateCandlesByCount,
     buildCandlesFromStoredRows,
-    buildCandlesFromTimeSeriesValues,
-    mergeStoredCandlesWithLiveCandles,
     type MarketCandleRow,
 } from "@/app/utils/market/ohlc";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
-import { getTwelveDataTimeSeries } from "@/app/utils/twelvedata/server";
-import {
-    buildRecentMinuteFetchWindow,
-    fetchAndStoreYahooBaseCandles,
-    sanitizeBaseCandles,
-} from "@/app/utils/yahoo/base-candles";
+import { sanitizeBaseCandles } from "@/app/utils/yahoo/base-candles";
 import {
     YAHOO_CANDLES_TABLE_NAME,
-    getLatestStoredYahooBaseCandle,
     type YahooCandleBaseInterval,
 } from "@/app/utils/yahoo/candles-storage";
 
@@ -104,63 +95,6 @@ function buildSymbolCandidates(rawSymbol: string) {
     }
 
     return [...candidates];
-}
-
-const pendingRefreshByKey = new Map<string, Promise<void>>();
-
-function getTwelveDataIntervalForBase(baseInterval: YahooCandleBaseInterval) {
-    switch (baseInterval) {
-        case "1m":
-            return "1min";
-        case "5m":
-            return "5min";
-        case "15m":
-            return "15min";
-        case "1h":
-            return "1h";
-        default:
-            return null;
-    }
-}
-
-function shouldUseLiveTimeSeries(baseInterval: YahooCandleBaseInterval) {
-    return getTwelveDataIntervalForBase(baseInterval) !== null;
-}
-
-async function refreshBaseCandlesIfNeeded(symbol: string, baseInterval: YahooCandleBaseInterval) {
-    const latestStored = await getLatestStoredYahooBaseCandle(symbol, baseInterval);
-    const freshnessMs = getProviderFreshnessMs(
-        baseInterval === "1h" ? "60m" : baseInterval
-    );
-    const latestFetchedAt = latestStored?.fetched_at
-        ? new Date(latestStored.fetched_at).getTime()
-        : null;
-
-    const isFresh =
-        latestFetchedAt !== null && Date.now() - latestFetchedAt < freshnessMs;
-
-    if (!isFresh) {
-        const options =
-            baseInterval === "1m"
-                ? buildRecentMinuteFetchWindow()
-                : {};
-        await fetchAndStoreYahooBaseCandles(symbol, baseInterval, options);
-    }
-}
-
-function refreshBaseCandlesIfNeededDeduped(symbol: string, baseInterval: YahooCandleBaseInterval) {
-    const key = `${symbol}::${baseInterval}`;
-    const pending = pendingRefreshByKey.get(key);
-    if (pending) {
-        return pending;
-    }
-
-    const request = refreshBaseCandlesIfNeeded(symbol, baseInterval).finally(() => {
-        pendingRefreshByKey.delete(key);
-    });
-
-    pendingRefreshByKey.set(key, request);
-    return request;
 }
 
 async function readStoredRows({
@@ -253,38 +187,6 @@ export async function readBaseCandlesForTimeframe({
     const baseInterval = config.baseInterval as YahooCandleBaseInterval;
     const requestedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(limit, 5000)) : 300;
     const fetchLimit = Math.max(requestedLimit * config.aggregateSize, requestedLimit);
-    const isMinuteBaseInterval = baseInterval === "1m";
-    let usedTwelveData = false;
-    let liveCandles: ReturnType<typeof buildCandlesFromTimeSeriesValues> = [];
-
-    const liveSeriesPromise = shouldUseLiveTimeSeries(baseInterval)
-        ? getTwelveDataTimeSeries(
-              symbol,
-              getTwelveDataIntervalForBase(baseInterval) ?? "1min",
-              Math.min(1500, Math.max(120, requestedLimit * config.aggregateSize))
-          )
-        : Promise.resolve(null);
-
-    try {
-        const liveSeries = await liveSeriesPromise;
-        if (liveSeries) {
-            liveCandles = buildCandlesFromTimeSeriesValues(
-                liveSeries.values ?? [],
-                liveSeries.meta?.currency ?? "USD",
-                liveSeries.meta?.exchange ?? null
-            );
-            usedTwelveData = liveCandles.length > 0;
-        }
-    } catch (liveSeriesError) {
-        console.error("initial TwelveData time_series error", {
-            symbol,
-            baseInterval,
-            error: liveSeriesError,
-        });
-    }
-
-    // Serve stored candles first to keep chart responses fast. A storage failure
-    // must not prevent the live TwelveData fallback from serving the chart.
     let rawRows: MarketCandleRow[] = [];
 
     try {
@@ -303,86 +205,10 @@ export async function readBaseCandlesForTimeframe({
         });
     }
 
-    // Prefer the live series immediately when storage is unavailable. Yahoo is
-    // still fetched below for persistence, but must not delay the first render.
-    if (rawRows.length === 0 && liveCandles.length === 0) {
-        try {
-            const fetchOptions =
-                isMinuteBaseInterval
-                    ? buildRecentMinuteFetchWindow()
-                    : {};
-            await fetchAndStoreYahooBaseCandles(symbol, baseInterval, fetchOptions);
-
-            try {
-                rawRows = await readStoredRows({
-                    symbol,
-                    baseInterval,
-                    from,
-                    to,
-                    fetchLimit,
-                });
-            } catch (storageError) {
-                console.error("readStoredRows after Yahoo fetch error", {
-                    symbol,
-                    baseInterval,
-                    error: storageError,
-                });
-            }
-        } catch (yahooError) {
-            console.error("initial fetchAndStoreYahooBaseCandles error", yahooError);
-        }
-    }
-
-    // If we have very sparse history, proactively backfill once more so initial chart
-    // requests can satisfy larger limits (e.g., 500 candles for 1m).
-    if (rawRows.length > 0 && rawRows.length < fetchLimit) {
-        try {
-            const fetchOptions =
-                isMinuteBaseInterval
-                    ? buildRecentMinuteFetchWindow()
-                    : {};
-            await fetchAndStoreYahooBaseCandles(symbol, baseInterval, fetchOptions);
-
-            try {
-                rawRows = await readStoredRows({
-                    symbol,
-                    baseInterval,
-                    from,
-                    to,
-                    fetchLimit,
-                });
-            } catch (storageError) {
-                console.error("readStoredRows after Yahoo backfill error", {
-                    symbol,
-                    baseInterval,
-                    error: storageError,
-                });
-            }
-        } catch (yahooBackfillError) {
-            console.error("sparse fetchAndStoreYahooBaseCandles backfill error", yahooBackfillError);
-        }
-    }
-
-    // Keep candles refreshed in background for subsequent requests.
-    void refreshBaseCandlesIfNeededDeduped(symbol, baseInterval).catch((error) => {
-        console.error("background refreshBaseCandlesIfNeeded error", error);
-    });
-
-    let normalizedRows = sanitizeBaseCandles(
+    const normalizedRows = sanitizeBaseCandles(
         baseInterval,
         buildCandlesFromStoredRows(rawRows)
     );
-    // Merge TwelveData live candles for intraday freshness.
-    if (liveCandles.length > 0) {
-        try {
-            normalizedRows = sanitizeBaseCandles(
-                baseInterval,
-                mergeStoredCandlesWithLiveCandles(normalizedRows, liveCandles)
-            );
-        } catch (liveSeriesError) {
-            console.error("getTwelveDataTimeSeries (base-candles) error", liveSeriesError);
-        }
-    }
 
     const candles = aggregateCandlesByCount(
         normalizedRows,
@@ -392,11 +218,7 @@ export async function readBaseCandlesForTimeframe({
     return {
         symbol,
         timeframe,
-        source: usedTwelveData
-            ? rawRows.length > 0
-                ? "yahoo_plus_twelvedata"
-                : "twelvedata_live_fallback"
-            : YAHOO_CANDLES_TABLE_NAME,
+        source: YAHOO_CANDLES_TABLE_NAME,
         baseInterval: config.baseInterval,
         aggregateSize: config.aggregateSize,
         rowsRead: rawRows.length,

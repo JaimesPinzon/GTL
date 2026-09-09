@@ -1,12 +1,23 @@
 export const symbols = [
     "AAPL",
     "MSFT",
+    "AMZN",
+    "GOOGL",
+    "NVDA",
+    "TSLA",
+    "META",
+    "BRK.B",
+    "JPM",
+    "JNJ",
     "QQQ",
     "DIA",
     "SPY",
     "BTC/USD",
     "ETH/USD",
     "NU",
+    "XRP/USD",
+    "ADA/USD",
+    "SOL/USD",
 ] as const;
 
 export const trackedMarketSymbols = [...symbols];
@@ -29,15 +40,3 @@ export function parseTrackedSymbols(rawSymbols?: string | null) {
         ? normalizeMarketSymbols(normalizedSymbols)
         : normalizeMarketSymbols(trackedMarketSymbols);
 }
-/*    "AMZN",
-"GOOGL",
-"NVDA",
-"TSLA",
-"META",
-"BRK.B",
-"JPM",
-"JNJ",
-"XRP/USD",
-"ADA/USD",
-"SOL/USD",
-*/

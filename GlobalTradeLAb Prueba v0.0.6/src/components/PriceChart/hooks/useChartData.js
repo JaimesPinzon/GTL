@@ -35,7 +35,7 @@ export function useChartData({
 
   const rawData = useMemo(() => {
     if (chartHistory.length === 0) {
-      return liveSnapshotData;
+      return [];
     }
 
     if (liveSnapshotData.length === 0) {

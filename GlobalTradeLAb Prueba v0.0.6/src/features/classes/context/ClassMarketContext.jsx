@@ -3,7 +3,6 @@ import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { getMarketHistoryFromBackend, getQuotesFromBackend } from "@/lib/backend-market";
-import { generateMarketData } from "@/lib/market-data";
 import { CLASS_CONTEXT_PATHS } from "@/lib/routes";
 import { useClassContext } from "@/features/classes/context/ClassContext";
 
@@ -30,94 +29,6 @@ const SYMBOL_TEMPLATES = [
   { id: "ADAUSD", nameKey: "trading.assets.cardano", currency: "USD", type: "crypto", exchangeLabel: "Mercado cripto global", baseVolatility: 0.045 },
   { id: "SOLUSD", nameKey: "trading.assets.solana", currency: "USD", type: "crypto", exchangeLabel: "Mercado cripto global", baseVolatility: 0.055 },
 ];
-
-const resolveQuoteTime = (quote) => {
-  const candidate = quote?.timestamp ? new Date(quote.timestamp) : new Date();
-  return Number.isFinite(candidate.getTime()) ? candidate : new Date();
-};
-
-const createQuoteSeries = (symbol, quote, historicalReferencePrice = null) => {
-  const numericPrice = Number.parseFloat(quote?.close);
-  const numericChange = Number.parseFloat(quote?.percent_change);
-  const numericOpen = Number.parseFloat(quote?.open);
-
-  if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
-    const fallbackSeries = generateMarketData(symbol.id, symbol.currency, symbol.baseVolatility, 2);
-    const previousCandle = fallbackSeries[0];
-    const currentCandle = fallbackSeries[1];
-    const fallbackChange = previousCandle && currentCandle && previousCandle.close !== 0
-      ? ((currentCandle.close - previousCandle.close) / previousCandle.close) * 100
-      : 0;
-
-    if (previousCandle && currentCandle && Math.abs(fallbackChange) < 0.01) {
-      currentCandle.close = previousCandle.close * (1 + Math.max(symbol.baseVolatility, 0.001));
-      currentCandle.value = currentCandle.close;
-      currentCandle.high = Math.max(currentCandle.open, currentCandle.close);
-      currentCandle.low = Math.min(currentCandle.open, currentCandle.close);
-    }
-
-    return fallbackSeries;
-  }
-
-  const previousPrice = Number.isFinite(historicalReferencePrice) && historicalReferencePrice > 0
-    ? historicalReferencePrice
-    : Number.isFinite(numericChange) && Math.abs(numericChange) >= 0.01 && numericChange > -100
-    ? numericPrice / (1 + numericChange / 100)
-    : Number.isFinite(numericOpen) && numericOpen > 0 && numericOpen !== numericPrice
-      ? numericOpen
-    : numericPrice * (1 - Math.max(symbol.baseVolatility, 0.001));
-  const quoteTime = resolveQuoteTime(quote);
-
-  return [
-    {
-      time: new Date(quoteTime.getTime() - 60000),
-      open: previousPrice,
-      high: previousPrice,
-      low: previousPrice,
-      close: previousPrice,
-      value: previousPrice,
-      currency: quote.currency ?? symbol.currency,
-    },
-    {
-      time: quoteTime,
-      open: previousPrice,
-      high: Math.max(previousPrice, numericPrice),
-      low: Math.min(previousPrice, numericPrice),
-      close: numericPrice,
-      value: numericPrice,
-      currency: quote.currency ?? symbol.currency,
-      referencePrice24h: previousPrice,
-    },
-  ];
-};
-
-const find24HourReferencePrice = (historyEntry, currentTime) => {
-  const candles = Array.isArray(historyEntry?.data) ? historyEntry.data : [];
-  const targetTime = currentTime.getTime() - 24 * 60 * 60 * 1000;
-
-  return candles.reduce((closestPrice, candle) => {
-    const candleTime = new Date(candle.time ?? candle.timestamp ?? candle.date).getTime();
-    const candlePrice = Number.parseFloat(candle.close ?? candle.value);
-
-    if (!Number.isFinite(candleTime) || !Number.isFinite(candlePrice) || candlePrice <= 0) {
-      return closestPrice;
-    }
-
-    if (!closestPrice || Math.abs(candleTime - targetTime) < closestPrice.distance) {
-      return { distance: Math.abs(candleTime - targetTime), price: candlePrice };
-    }
-
-    return closestPrice;
-  }, null)?.price ?? null;
-};
-
-const createFallbackMarketData = () =>
-  Object.fromEntries(
-    SYMBOL_TEMPLATES.map((symbol) => [
-      symbol.id,
-      createQuoteSeries(symbol, null),
-    ])
-  );
 
 export const useClassMarketContext = () => useContext(ClassMarketContext);
 
@@ -148,7 +59,7 @@ export const ClassMarketContextProvider = ({ children }) => {
 
     let isMounted = true;
     setIsMarketLoading(true);
-    setMarketData(createFallbackMarketData());
+    setMarketData({});
 
     const loadMarketSnapshot = async () => {
       try {
@@ -169,35 +80,18 @@ export const ClassMarketContextProvider = ({ children }) => {
           return [];
         });
 
-        const historyBySymbol = new Map(
-          historicalResults.map((entry) => [entry.localSymbol, entry])
+        const nextMarketData = Object.fromEntries(
+          historicalResults.map((entry) => [
+            entry.localSymbol,
+            Array.isArray(entry.data) ? entry.data : [],
+          ])
         );
-        const nextMarketData = createFallbackMarketData();
-
-        latestQuotes.forEach((entry) => {
-          if (!entry.ok || !entry.data) {
-            return;
-          }
-
-          const symbolId = entry.localSymbol;
-          const symbol = SYMBOL_TEMPLATES.find((item) => item.id === symbolId);
-          if (symbol) {
-            nextMarketData[symbolId] = createQuoteSeries(
-              symbol,
-              entry.data,
-              find24HourReferencePrice(
-                historyBySymbol.get(symbolId),
-                resolveQuoteTime(entry.data)
-              )
-            );
-          }
-        });
 
         setMarketData(nextMarketData);
       } catch (error) {
         console.error("loadClassMarketSnapshot error", error);
         if (isMounted) {
-          setMarketData(createFallbackMarketData());
+          setMarketData({});
         }
       } finally {
         if (isMounted) {
@@ -246,27 +140,23 @@ export const ClassMarketContextProvider = ({ children }) => {
           }
 
           if (!nextData[symbolId] || nextData[symbolId].length === 0) {
-            const symbol = SYMBOL_TEMPLATES.find((item) => item.id === symbolId);
-            if (symbol) {
-              nextData[symbolId] = createQuoteSeries(symbol, quote);
-            }
             return;
           }
 
-          const previousCandle = nextData[symbolId][nextData[symbolId].length - 1];
+          const lastCandleIndex = nextData[symbolId].length - 1;
+          nextData[symbolId] = nextData[symbolId].map((candle, index) => {
+            if (index !== lastCandleIndex) {
+              return candle;
+            }
 
-          nextData[symbolId] = [
-            ...nextData[symbolId].slice(-1999),
-            {
-              ...previousCandle,
-              time: resolveQuoteTime(quote),
-              open: previousCandle.close,
-              high: Math.max(previousCandle.close, numericPrice),
-              low: Math.min(previousCandle.close, numericPrice),
+            return {
+              ...candle,
+              high: Math.max(candle.high, numericPrice),
+              low: Math.min(candle.low, numericPrice),
               close: numericPrice,
               value: numericPrice,
-            },
-          ];
+            };
+          });
         });
 
         return nextData;
