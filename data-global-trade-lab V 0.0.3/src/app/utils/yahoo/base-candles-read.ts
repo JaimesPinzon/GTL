@@ -97,6 +97,19 @@ function buildSymbolCandidates(rawSymbol: string) {
     return [...candidates];
 }
 
+function normalizeOptionalTimestamp(value: string | null | undefined, name: string) {
+    if (!value?.trim()) {
+        return null;
+    }
+
+    const timestamp = new Date(value).getTime();
+    if (!Number.isFinite(timestamp)) {
+        throw new Error(`${name} must be a valid ISO-8601 timestamp`);
+    }
+
+    return new Date(timestamp).toISOString();
+}
+
 async function readStoredRows({
     symbol,
     baseInterval,
@@ -123,12 +136,19 @@ async function readStoredRows({
             ? query.eq("instrument_id", symbolCandidates[0])
             : query.in("instrument_id", symbolCandidates);
 
-    if (from) {
-        query = query.gte("open_time", from);
+    const normalizedFrom = normalizeOptionalTimestamp(from, "from");
+    const normalizedTo = normalizeOptionalTimestamp(to, "to");
+
+    if (normalizedFrom && normalizedTo && normalizedFrom > normalizedTo) {
+        throw new Error("from must be earlier than or equal to to");
     }
 
-    if (to) {
-        query = query.lte("open_time", to);
+    if (normalizedFrom) {
+        query = query.gte("open_time", normalizedFrom);
+    }
+
+    if (normalizedTo) {
+        query = query.lte("open_time", normalizedTo);
     }
 
     const { data, error } = await query;
