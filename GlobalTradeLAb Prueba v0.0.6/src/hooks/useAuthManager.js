@@ -70,9 +70,7 @@ export const useAuthManager = ({
         const securityState = registerSecurityLoginEvent(data.user.id, {
           isNewDevice: knownSecurity.activeSessions.length === 0,
         });
-        syncUserFromAuth(data.user).catch((syncError) => {
-          console.error("syncUserFromAuth login error", syncError);
-        });
+        await syncUserFromAuth(data.user);
 
         if (securityState.notifyNewDevice && securityState.loginHistory[0]?.isNewDevice) {
           toast({

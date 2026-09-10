@@ -69,6 +69,16 @@ type LastCandleMarketRow = {
 
 const normalizeSymbol = (value: unknown) => String(value || "").trim().toUpperCase();
 
+const buildSymbolCandidates = (value: unknown) => {
+    const symbol = normalizeSymbol(value);
+    if (!symbol) {
+        return [];
+    }
+
+    const compactSymbol = symbol.replace(/\//g, "");
+    return [...new Set([symbol, compactSymbol])];
+};
+
 const toNumeric = (value: unknown) => {
     const parsed = Number.parseFloat(String(value ?? "").replace(/,/g, ""));
     return Number.isFinite(parsed) ? parsed : null;
@@ -336,13 +346,17 @@ export async function getLastCandleMarketBySymbols(symbols: string[]) {
         return new Map<string, LastCandleMarketSnapshot>();
     }
 
+    const querySymbols = [...new Set(
+        normalizedSymbols.flatMap((symbol) => buildSymbolCandidates(symbol))
+    )];
+
     const { data, error } = await supabaseAdmin
         .from("last_candle_market")
         .select(
             "symbol, source, provider_symbol, asset_name, exchange, currency, price, open_price, high_price, low_price, close_price, volume, percent_change, is_market_open, candle_time, fetched_at, market_status, status, error_message"
         )
         .eq("source", DEFAULT_SOURCE)
-        .in("symbol", normalizedSymbols);
+        .in("symbol", querySymbols);
 
     if (error) {
         throw error;
@@ -351,7 +365,10 @@ export async function getLastCandleMarketBySymbols(symbols: string[]) {
     const snapshots = new Map<string, LastCandleMarketSnapshot>();
     (data || []).forEach((row) => {
         const typedRow = row as LastCandleMarketRow;
-        snapshots.set(normalizeSymbol(typedRow.symbol), mapRowToSnapshot(typedRow));
+        const snapshot = mapRowToSnapshot(typedRow);
+        buildSymbolCandidates(typedRow.symbol).forEach((candidate) => {
+            snapshots.set(candidate, snapshot);
+        });
     });
 
     return snapshots;

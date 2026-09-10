@@ -85,22 +85,30 @@ export async function GET(request: Request) {
         let autoRefresh: Awaited<ReturnType<typeof refreshTrackedQuotesIfDue>> | null = null;
 
         if (isSnapshotExpired(snapshot)) {
-            autoRefresh = await refreshTrackedQuotesIfDue({ symbols: [symbol] });
-            latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
-            snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || null;
+            try {
+                autoRefresh = await refreshTrackedQuotesIfDue({ symbols: [symbol] });
+                latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
+                snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || snapshot;
+            } catch (refreshError) {
+                console.warn("quote refresh unavailable; serving stored snapshot", refreshError);
+            }
 
             if (
                 isSnapshotExpired(snapshot) &&
                 autoRefresh?.skipped &&
                 autoRefresh.reason === "refresh_window_locked_or_not_due"
             ) {
-                autoRefresh = await refreshTrackedQuotesIfDue({
-                    symbols: [symbol],
-                    force: true,
-                });
+                try {
+                    autoRefresh = await refreshTrackedQuotesIfDue({
+                        symbols: [symbol],
+                        force: true,
+                    });
 
-                latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
-                snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || null;
+                    latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
+                    snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || snapshot;
+                } catch (refreshError) {
+                    console.warn("forced quote refresh unavailable; serving stored snapshot", refreshError);
+                }
             }
         }
 
@@ -110,6 +118,7 @@ export async function GET(request: Request) {
                     ok: true,
                     source: "supabase_snapshot",
                     stale: snapshot.isStale,
+                    degraded: snapshot.isStale,
                     autoRefresh,
                     data: toSnapshotQuotePayload(snapshot),
                     persisted: false,

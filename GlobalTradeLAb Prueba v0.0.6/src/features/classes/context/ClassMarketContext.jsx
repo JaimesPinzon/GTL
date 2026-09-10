@@ -97,6 +97,27 @@ export const ClassMarketContextProvider = ({ children }) => {
           ])
         );
 
+        setQuoteData((currentQuotes) => {
+          const nextQuotes = { ...currentQuotes };
+
+          historicalResults.forEach((entry) => {
+            const lastCandle = Array.isArray(entry.data) ? entry.data.at(-1) : null;
+            const close = Number.parseFloat(lastCandle?.close ?? lastCandle?.value);
+
+            if (!Number.isFinite(close) || close <= 0 || nextQuotes[entry.localSymbol]) {
+              return;
+            }
+
+            nextQuotes[entry.localSymbol] = {
+              close: String(close),
+              percent_change: "0",
+              timestamp: lastCandle.time,
+            };
+          });
+
+          return nextQuotes;
+        });
+
         setMarketData(nextMarketData);
       } catch (error) {
         console.error("loadClassMarketSnapshot error", error);

@@ -124,19 +124,27 @@ export async function GET(request: Request) {
         let autoRefresh: Awaited<ReturnType<typeof refreshTrackedQuotesIfDue>> | null = null;
 
         if (shouldAutoRefresh(latestSnapshotsBySymbol)) {
-            autoRefresh = await refreshTrackedQuotesIfDue({ symbols });
-            latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
+            try {
+                autoRefresh = await refreshTrackedQuotesIfDue({ symbols });
+                latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
+            } catch (refreshError) {
+                console.warn("batch quote refresh unavailable; serving stored snapshots", refreshError);
+            }
 
             if (
                 shouldAutoRefresh(latestSnapshotsBySymbol) &&
                 autoRefresh?.skipped &&
                 autoRefresh.reason === "refresh_window_locked_or_not_due"
             ) {
-                autoRefresh = await refreshTrackedQuotesIfDue({
-                    symbols,
-                    force: true,
-                });
-                latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
+                try {
+                    autoRefresh = await refreshTrackedQuotesIfDue({
+                        symbols,
+                        force: true,
+                    });
+                    latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
+                } catch (refreshError) {
+                    console.warn("forced batch quote refresh unavailable; serving stored snapshots", refreshError);
+                }
             }
         }
 
