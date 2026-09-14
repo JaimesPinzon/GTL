@@ -444,6 +444,9 @@ create table if not exists public.candles (
     primary key (exchange_id, instrument_id, timeframe, open_time)
 ) partition by range (open_time);
 
+create index if not exists candles_instrument_timeframe_open_time_idx
+  on public.candles (instrument_id, timeframe, open_time desc);
+
 -- Seed explicit monthly partitions requested for initial rollout.
 create table if not exists public.candles_2026_05
 partition of public.candles
@@ -762,9 +765,17 @@ select cron.schedule(
   $$ select public.create_monthly_candle_partitions(6); $$
 );
 
--- Configure these per environment before enabling the backfill scheduler:
--- alter database postgres set "app.settings.market_backend_url" = 'https://your-backend.example.com';
--- alter database postgres set "app.settings.market_cron_secret" = 'your-cron-secret';
+create schema if not exists private;
+
+create table if not exists private.market_cron_config (
+  config_id boolean primary key default true check (config_id),
+  backend_url text not null,
+  cron_secret text,
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+revoke all on private.market_cron_config from public, anon, authenticated;
+grant select on private.market_cron_config to postgres, service_role;
 
 create or replace function public.trigger_market_base_candles_backfill()
 returns void
@@ -773,10 +784,15 @@ security definer
 set search_path = public
 as $$
 declare
-    backend_url text := nullif(current_setting('app.settings.market_backend_url', true), '');
-    cron_secret text := nullif(current_setting('app.settings.market_cron_secret', true), '');
+  backend_url text;
+  cron_secret text;
     request_headers jsonb := jsonb_build_object('Content-Type', 'application/json');
 begin
+  select c.backend_url, c.cron_secret
+  into backend_url, cron_secret
+  from private.market_cron_config c
+  where c.config_id = true;
+
     if backend_url is null then
         raise notice 'market backfill cron skipped: app.settings.market_backend_url is not configured';
         return;
@@ -811,10 +827,15 @@ security definer
 set search_path = public
 as $$
 declare
-    backend_url text := nullif(current_setting('app.settings.market_backend_url', true), '');
-    cron_secret text := nullif(current_setting('app.settings.market_cron_secret', true), '');
+  backend_url text;
+  cron_secret text;
     request_headers jsonb := jsonb_build_object('Content-Type', 'application/json');
 begin
+  select c.backend_url, c.cron_secret
+  into backend_url, cron_secret
+  from private.market_cron_config c
+  where c.config_id = true;
+
     if backend_url is null then
         raise notice 'market quotes refresh cron skipped: app.settings.market_backend_url is not configured';
         return;

@@ -245,6 +245,8 @@ const en = {
       insufficientBalanceStudent: "You do not have enough balance available in this room.",
       invalidPriceTitle: "Invalid price",
       invalidPriceDescription: "The asset price cannot be zero or negative.",
+      operationFailedTitle: "Operation could not be submitted",
+      operationFailedDescription: "Check your connection and try again.",
       positionOpenedTitle: "Trade completed",
       positionOpenedDescription: "{{side}} position in {{symbol}} opened for {{amount}}.",
       positionNotFoundTitle: "Position not found",

@@ -59,6 +59,17 @@ function buildSymbolCandidates(rawSymbol: string) {
     return [...candidates];
 }
 
+function getStoredSymbol(rawSymbol: string) {
+    const symbol = rawSymbol.trim().toUpperCase();
+    const compact = symbol.replace(/\//g, "");
+
+    if (/^[A-Z0-9]{6,}USD$/.test(compact)) {
+        return `${compact.slice(0, -3)}/USD`;
+    }
+
+    return symbol;
+}
+
 function normalizeBucketTime(candleTime: string) {
     const timestamp = new Date(candleTime).getTime();
     if (!Number.isFinite(timestamp)) {
@@ -109,7 +120,7 @@ export async function getLatestStoredYahooBaseCandle(
     symbol: string,
     interval: YahooCandleBaseInterval
 ) {
-    const symbolCandidates = buildSymbolCandidates(symbol);
+    const symbolCandidates = [getStoredSymbol(symbol)];
     if (symbolCandidates.length === 0) {
         return null;
     }

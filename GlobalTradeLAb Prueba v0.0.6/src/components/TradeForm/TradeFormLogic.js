@@ -10,6 +10,17 @@ const TradeFormLogic = ({
   availableBalance,
 }) => {
   const { t } = useTranslation();
+  const getOperationErrorMessage = (error) => {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    if (typeof error?.message === "string" && error.message.trim()) {
+      return error.message;
+    }
+
+    return t("trading.toasts.operationFailedDescription");
+  };
   const [tradeMode, setTradeMode] = useState("amount");
   const [amount, setAmount] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -64,6 +75,16 @@ const TradeFormLogic = ({
   const handleSubmit = async (event) => {
     event.preventDefault();
 
+    const numericCurrentPrice = Number(currentPrice);
+    if (!Number.isFinite(numericCurrentPrice) || numericCurrentPrice <= 0) {
+      toast({
+        title: t("trading.toasts.invalidPriceTitle"),
+        description: t("trading.toasts.invalidPriceDescription"),
+        variant: "destructive",
+      });
+      return;
+    }
+
     let investmentAmountUSD = 0;
 
     if (tradeMode === "amount") {
@@ -86,7 +107,7 @@ const TradeFormLogic = ({
         });
         return;
       }
-      investmentAmountUSD = parsedQuantity * currentPrice;
+      investmentAmountUSD = parsedQuantity * numericCurrentPrice;
     }
 
     if (!justification.trim()) {
@@ -98,23 +119,33 @@ const TradeFormLogic = ({
       return;
     }
 
-    const success = await openPosition(
-      selectedSymbol,
-      tradeType,
-      investmentAmountUSD,
-      currentPrice,
-      justification,
-      attachmentName,
-      {
-        availableBalance,
-      }
-    );
+    try {
+      const success = await openPosition(
+        selectedSymbol,
+        tradeType,
+        investmentAmountUSD,
+        numericCurrentPrice,
+        justification,
+        attachmentName,
+        {
+          availableBalance,
+        }
+      );
 
-    if (success) {
-      setAmount("");
-      setQuantity("");
-      setJustification("");
-      handleFileChange({ target: { files: [] } });
+      if (success) {
+        setAmount("");
+        setQuantity("");
+        setJustification("");
+        handleFileChange({ target: { files: [] } });
+      }
+    } catch (error) {
+      console.error("Trade submission error", error);
+      toast({
+        title: t("trading.toasts.operationFailedTitle"),
+        description:
+          getOperationErrorMessage(error),
+        variant: "destructive",
+      });
     }
   };
 

@@ -260,6 +260,8 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
   const loadingOlderRef = useRef(false);
   const oldestHistoryReachedRef = useRef(false);
   const oldestLoadedTimeRef = useRef(null);
+  const latestLoadRequestIdRef = useRef(0);
+  const olderLoadRequestIdRef = useRef(0);
 
   useEffect(() => {
     ensureOhlcCacheScope(cacheScopeKey);
@@ -270,6 +272,8 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
     loadingOlderRef.current = false;
     oldestHistoryReachedRef.current = false;
     oldestLoadedTimeRef.current = null;
+    latestLoadRequestIdRef.current += 1;
+    olderLoadRequestIdRef.current += 1;
     setChartHistory([]);
     setIsLoadingOlderHistory(false);
     setHasReachedOldestHistory(false);
@@ -287,6 +291,7 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
 
   useEffect(() => {
     let isMounted = true;
+    const requestId = ++latestLoadRequestIdRef.current;
 
     const loadLatestHistory = async (force = false) => {
       try {
@@ -317,7 +322,7 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
             }
           }
 
-          if (!isMounted) {
+          if (!isMounted || requestId !== latestLoadRequestIdRef.current) {
             return;
           }
 
@@ -325,6 +330,9 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
           maybeUpdateLoadedWindowFromHistory({ nextHistory, oldestLoadedTimeRef, loadedWindowRef });
 
           if (force) {
+            if (requestId !== latestLoadRequestIdRef.current) {
+              return;
+            }
             mergeNextHistoryIntoChart({ nextHistory, setChartHistory });
           } else {
             setChartHistory(nextHistory);
@@ -340,15 +348,17 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
           force,
         });
 
-        if (isMounted) {
-          setChartHistory((currentHistory) =>
-            hasHistoryChanged(currentHistory, nextHistory) ? nextHistory : currentHistory
-          );
+        if (!isMounted || requestId !== latestLoadRequestIdRef.current) {
+          return;
         }
+
+        setChartHistory((currentHistory) =>
+          hasHistoryChanged(currentHistory, nextHistory) ? nextHistory : currentHistory
+        );
       } catch (error) {
         console.error("loadChartHistory error", error);
 
-        if (isMounted) {
+        if (isMounted && requestId === latestLoadRequestIdRef.current) {
           setChartHistory([]);
         }
       }
@@ -356,7 +366,9 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
 
     loadLatestHistory();
     const intervalId = window.setInterval(() => {
-      loadLatestHistory(true);
+      if (requestId === latestLoadRequestIdRef.current) {
+        loadLatestHistory(true);
+      }
     }, refreshInterval);
 
     return () => {
@@ -370,6 +382,7 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
       return false;
     }
 
+    const currentRequestId = ++olderLoadRequestIdRef.current;
     const olderWindow = resolveOlderWindowFromCursor({ loadedWindowRef, oldestLoadedTimeRef });
     if (!olderWindow) {
       markOldestHistoryAsReached({
@@ -391,6 +404,10 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
         from: olderWindow.from,
         to: olderWindow.to,
       });
+
+      if (currentRequestId !== olderLoadRequestIdRef.current) {
+        return false;
+      }
 
       if (!Array.isArray(olderHistory) || olderHistory.length === 0) {
         markOldestHistoryAsReached({
@@ -434,8 +451,10 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
       console.error("loadOlderHistory error", error);
       return false;
     } finally {
-      loadingOlderRef.current = false;
-      setIsLoadingOlderHistory(false);
+      if (currentRequestId === olderLoadRequestIdRef.current) {
+        loadingOlderRef.current = false;
+        setIsLoadingOlderHistory(false);
+      }
     }
   }, [olderLoadLimit, progressive, selectedSymbol, timeframe]);
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
-import { buildCandlesFromStoredRows, aggregateCandlesByCount, fetchAndStoreYahooCandles, type MarketCandleRow } from "@/app/utils/market/ohlc";
+import { buildCandlesFromStoredRows, aggregateCandlesByCount, type MarketCandleRow } from "@/app/utils/market/ohlc";
 import { buildEmaSeries, buildMacdSeries } from "@/app/utils/market/indicators";
 import { getConfigForTimeframe } from "@/app/utils/market/timeframes";
 
@@ -50,15 +50,10 @@ export async function GET(request: Request) {
             throw error;
         }
 
-        let candles = aggregateCandlesByCount(
+        const candles = aggregateCandlesByCount(
             buildCandlesFromStoredRows((data ?? []) as MarketCandleRow[]),
             config.aggregateSize
         ).slice(-limit);
-
-        if (candles.length === 0) {
-            const fetched = await fetchAndStoreYahooCandles(symbol, config.providerInterval, config.range);
-            candles = aggregateCandlesByCount(fetched, config.aggregateSize).slice(-limit);
-        }
 
         const candleTimes = candles.map((candle) => candle.time);
         const closes = candles.map((candle) => candle.close);

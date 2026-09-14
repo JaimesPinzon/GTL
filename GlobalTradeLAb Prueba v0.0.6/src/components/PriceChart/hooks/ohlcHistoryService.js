@@ -15,7 +15,7 @@ export function getHistoryLimit(timeframe) {
   return HISTORY_LIMIT_BY_TIMEFRAME[timeframe] ?? 500;
 }
 
-const OHLC_CACHE_VERSION = "v7";
+const OHLC_CACHE_VERSION = "v8-live-ohlc";
 
 export function buildCacheKey({ symbol, timeframe, limit, from = null, to = null }) {
   return `${OHLC_CACHE_VERSION}::${symbol}::${timeframe}::${limit}::${from ?? "latest"}::${to ?? "latest"}`;
@@ -27,7 +27,7 @@ export function getCacheTtl(timeframe) {
 
 export function getRefreshInterval(timeframe) {
   const cacheTtl = getCacheTtl(timeframe);
-  return Math.max(60 * 1000, Math.min(cacheTtl, 2 * 60 * 1000));
+  return Math.max(30 * 1000, Math.min(cacheTtl, 2 * 60 * 1000));
 }
 
 export function getCachedData({ cacheKey, cacheTtl }) {

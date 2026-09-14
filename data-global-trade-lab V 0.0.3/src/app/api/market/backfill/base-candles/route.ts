@@ -80,11 +80,23 @@ async function backfillBaseCandles(
     chunkDays: number | null
 ) {
     const results = [];
+    let storageUnavailable = false;
 
     for (const symbol of symbols) {
         const intervals = [];
 
         for (const baseTimeframe of baseTimeframes) {
+            if (storageUnavailable) {
+                intervals.push({
+                    timeframe: baseTimeframe,
+                    table: yahooBaseTimeframeConfigs[baseTimeframe].tableName,
+                    providerInterval: yahooBaseTimeframeConfigs[baseTimeframe].providerInterval,
+                    range: yahooBaseTimeframeConfigs[baseTimeframe].range,
+                    status: "skipped_storage_unavailable",
+                });
+                continue;
+            }
+
             const config = yahooBaseTimeframeConfigs[baseTimeframe];
 
             try {
@@ -151,16 +163,18 @@ async function backfillBaseCandles(
                     chunkDays: fetchOptions.chunkDays ?? null,
                 });
             } catch (error) {
+                const message = error instanceof Error ? error.message : "Unknown storage error";
+                if (/502|503|504|timeout|fetch failed|connection/i.test(message)) {
+                    storageUnavailable = true;
+                }
+
                 intervals.push({
                     timeframe: baseTimeframe,
                     table: config.tableName,
                     providerInterval: config.providerInterval,
                     range: config.range,
                     status: "error",
-                    error:
-                        error instanceof Error
-                            ? error.message
-                            : "Unknown Yahoo base candles backfill error",
+                    error: message,
                 });
             }
         }

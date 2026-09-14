@@ -121,12 +121,27 @@ export const usePortfolioManager = ({ currentUser, updateUser, toast, activeRoom
       attachmentName: attachmentName || null,
     };
 
-    await updateUser({
-      ...currentUser,
-      positions: [...currentUser.positions, newPosition],
-      transactions: [...currentUser.transactions, newTransaction],
-      balance: effectiveBalance - amountUSD,
-    });
+    try {
+      await updateUser({
+        ...currentUser,
+        positions: [...currentUser.positions, newPosition],
+        transactions: [...currentUser.transactions, newTransaction],
+        balance: effectiveBalance - amountUSD,
+      });
+    } catch (error) {
+      console.error("openPosition persistence error", error);
+      toast({
+        title: t("trading.toasts.operationFailedTitle"),
+        description:
+          error instanceof Error && error.message
+            ? error.message
+            : typeof error?.message === "string" && error.message.trim()
+              ? error.message
+              : t("trading.toasts.operationFailedDescription"),
+        variant: "destructive",
+      });
+      return false;
+    }
 
     toast({
       title: t("trading.toasts.positionOpenedTitle"),

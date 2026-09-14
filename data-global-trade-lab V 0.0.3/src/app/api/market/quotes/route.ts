@@ -4,7 +4,6 @@ import {
     getLastCandleMarketBySymbols,
     type LastCandleMarketSnapshot,
 } from "@/app/utils/market/last-candle-market";
-import { refreshTrackedQuotesIfDue } from "@/app/utils/market/quotes-refresh";
 import { type MarketQuotePayload } from "@/app/utils/market/quotes-cache";
 
 const corsHeaders = {
@@ -16,34 +15,6 @@ const corsHeaders = {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const DEFAULT_REFRESH_INTERVAL_MS = 108000;
-
-const resolveRefreshIntervalMs = () => {
-    const raw = Number.parseInt(
-        String(process.env.MARKET_QUOTES_REFRESH_TTL_MS ?? ""),
-        10
-    );
-
-    if (Number.isFinite(raw) && raw > 0) {
-        return raw;
-    }
-
-    return DEFAULT_REFRESH_INTERVAL_MS;
-};
-
-const getSnapshotAgeMs = (snapshot: LastCandleMarketSnapshot | null) => {
-    if (!snapshot) {
-        return Number.POSITIVE_INFINITY;
-    }
-
-    const fetchedAtMs = Date.parse(snapshot.fetchedAt);
-    if (!Number.isFinite(fetchedAtMs)) {
-        return Number.POSITIVE_INFINITY;
-    }
-
-    return Date.now() - fetchedAtMs;
-};
 
 export async function OPTIONS() {
     return new NextResponse(null, {
@@ -103,50 +74,8 @@ export async function GET(request: Request) {
             };
         });
 
-    const shouldAutoRefresh = (latestSnapshotsBySymbol: Map<string, LastCandleMarketSnapshot>) => {
-        const maxAgeMs = resolveRefreshIntervalMs();
-        return symbols.some((symbol) => {
-            const snapshot = latestSnapshotsBySymbol.get(symbol.toUpperCase()) || null;
-            if (!snapshot) {
-                return true;
-            }
-
-            if (!Number.isFinite(snapshot.price) || snapshot.price <= 0) {
-                return true;
-            }
-
-            return getSnapshotAgeMs(snapshot) > maxAgeMs;
-        });
-    };
-
     try {
-        let latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
-        let autoRefresh: Awaited<ReturnType<typeof refreshTrackedQuotesIfDue>> | null = null;
-
-        if (shouldAutoRefresh(latestSnapshotsBySymbol)) {
-            try {
-                autoRefresh = await refreshTrackedQuotesIfDue({ symbols });
-                latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
-            } catch (refreshError) {
-                console.warn("batch quote refresh unavailable; serving stored snapshots", refreshError);
-            }
-
-            if (
-                shouldAutoRefresh(latestSnapshotsBySymbol) &&
-                autoRefresh?.skipped &&
-                autoRefresh.reason === "refresh_window_locked_or_not_due"
-            ) {
-                try {
-                    autoRefresh = await refreshTrackedQuotesIfDue({
-                        symbols,
-                        force: true,
-                    });
-                    latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
-                } catch (refreshError) {
-                    console.warn("forced batch quote refresh unavailable; serving stored snapshots", refreshError);
-                }
-            }
-        }
+        const latestSnapshotsBySymbol = await getLastCandleMarketBySymbols(symbols);
 
         const results = buildResults(latestSnapshotsBySymbol);
 
@@ -154,7 +83,7 @@ export async function GET(request: Request) {
             {
                 ok: true,
                 cacheTtlMs: 108000,
-                autoRefresh,
+                source: "supabase_snapshot",
                 results,
             },
             {

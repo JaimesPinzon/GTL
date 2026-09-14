@@ -346,8 +346,9 @@ export const getMarketOhlcFromBackend = async ({
     searchParams.set("to", to);
   }
 
+  const endpoint = from || to ? "/api/market/ohlc/base-candles" : "/api/market/ohlc";
   const response = await fetch(
-    `${getMarketBackendUrl("/api/market/ohlc/base-candles")}?${searchParams.toString()}`,
+    `${getMarketBackendUrl(endpoint)}?${searchParams.toString()}`,
     { cache: "no-store" }
   );
 

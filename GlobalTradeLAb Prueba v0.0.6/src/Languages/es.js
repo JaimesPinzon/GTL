@@ -245,6 +245,8 @@ const es = {
       insufficientBalanceStudent: "No tienes saldo suficiente disponible en esta sala.",
       invalidPriceTitle: "Precio inválido",
       invalidPriceDescription: "El precio del activo no puede ser cero ni negativo.",
+      operationFailedTitle: "No se pudo enviar la operación",
+      operationFailedDescription: "Revisa la conexión y vuelve a intentarlo.",
       positionOpenedTitle: "Operación exitosa",
       positionOpenedDescription: "{{side}} de {{symbol}} abierta por {{amount}}.",
       positionNotFoundTitle: "Posición no encontrada",
