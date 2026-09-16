@@ -386,7 +386,7 @@ export const getMarketDrawingsFromBackend = async ({
   timeframe = DEFAULT_TIMEFRAME,
   accessToken = getCachedSupabaseAccessToken(),
 }) => {
-  const backendSymbol = getBackendSymbol(symbol);
+  const backendSymbol = getBackendSymbol(symbol) ?? (typeof symbol === "string" ? symbol.trim() : "");
 
   if (!backendSymbol || !accessToken) {
     return [];
@@ -423,7 +423,7 @@ export const saveMarketDrawingsToBackend = async ({
   objects = [],
   accessToken = getCachedSupabaseAccessToken(),
 }) => {
-  const backendSymbol = getBackendSymbol(symbol);
+  const backendSymbol = getBackendSymbol(symbol) ?? (typeof symbol === "string" ? symbol.trim() : "");
 
   if (!backendSymbol || !accessToken) {
     return null;

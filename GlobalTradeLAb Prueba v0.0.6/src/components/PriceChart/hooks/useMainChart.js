@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createChart } from "lightweight-charts";
 import { focusLatestBars, getChartOptions, getPriceFormat, getSeriesOptions } from "../utils";
 import { INITIAL_VISIBLE_BARS_BY_TIMEFRAME } from "@/lib/market-timeframes";
@@ -12,7 +12,6 @@ export function useMainChart({
   containerRef,
   currency,
   currentTimeframe,
-  drawingSeriesRefs,
   formattedSeriesData,
   isFullScreen,
   onChartClick,
@@ -29,6 +28,7 @@ export function useMainChart({
   showMACD,
   syncMacdVisibility,
 }) {
+  const [chartRevision, setChartRevision] = useState(0);
   const seriesTypeRef = useRef(null);
   const overlaySeriesRefs = useRef(new Map());
   const hasAutoFocusedRef = useRef(false);
@@ -100,6 +100,7 @@ export function useMainChart({
         chartTimezone
       )
     );
+    setChartRevision((revision) => revision + 1);
 
     const handleChartClickProxy = (param) => chartClickHandlerRef.current?.(param);
     const handleCrosshairMoveProxy = (param) => crosshairMoveHandlerRef.current?.(param);
@@ -191,14 +192,6 @@ export function useMainChart({
         chartRef.current?.unsubscribeCrosshairMove(handleCrosshairMoveProxy);
       } catch {}
 
-      drawingSeriesRefs.current.forEach((series) => {
-        if (chartRef.current && series) {
-          try {
-            chartRef.current.removeSeries(series);
-          } catch {}
-        }
-      });
-
       overlaySeriesRefs.current.forEach((series) => {
         if (chartRef.current && series) {
           try {
@@ -221,9 +214,8 @@ export function useMainChart({
       seriesRef.current = null;
       seriesTypeRef.current = null;
       overlaySeriesRefs.current = new Map();
-      drawingSeriesRefs.current = [];
     };
-  }, [containerRef, drawingSeriesRefs, syncMacdVisibility]);
+  }, [containerRef, syncMacdVisibility]);
 
   useEffect(() => {
     if (!chartRef.current || !containerRef.current) {
@@ -462,4 +454,6 @@ export function useMainChart({
     onRegisterActions({ captureScreenshot });
     return () => onRegisterActions(null);
   }, [onRegisterActions, selectedSymbol]);
+
+  return { chartRevision };
 }

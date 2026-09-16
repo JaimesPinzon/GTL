@@ -44,6 +44,7 @@ const Dashboard = () => {
   const [isWorkspaceUtilityRailPinned, setIsWorkspaceUtilityRailPinned] = useState(true);
   const [activeWorkspacePanel, setActiveWorkspacePanel] = useState(null);
   const [chartActions, setChartActions] = useState(null);
+  const [drawingWorkspace, setDrawingWorkspace] = useState(null);
   const [chartAppearance, setChartAppearance] = useState(createDefaultChartAppearance);
 
   const workspaceColumns = useMemo(
@@ -153,6 +154,7 @@ const Dashboard = () => {
                   setIsFullScreen={setIsChartFullScreen}
                   chartAppearance={chartAppearance}
                   onRegisterActions={setChartActions}
+                  onDrawingWorkspaceChange={setDrawingWorkspace}
                   activeTool={chartSideTool}
                   setActiveTool={setChartSideTool}
                   showToolSidebar={isChartToolSidebarPinned}
@@ -169,6 +171,7 @@ const Dashboard = () => {
                 {isWorkspaceUtilityRailPinned ? (
                   <WorkspaceUtilityRail
                     activePanel={activeWorkspacePanel}
+                    drawingWorkspace={drawingWorkspace}
                     onTogglePanel={setActiveWorkspacePanel}
                   />
                 ) : null}

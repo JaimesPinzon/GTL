@@ -4,6 +4,7 @@
   "version": "0.0.6",
   "private": true,
   "scripts": {
+    "test:drawing": "node --test scripts/test-drawing-tools.mjs",
     "test:operating": "node --test scripts/test-trade-form.mjs scripts/test-operating-data.mjs scripts/test-operating-integration.mjs scripts/test-room-loading.mjs",
     "dev": "vite",
     "build": "vite build",

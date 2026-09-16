@@ -1,75 +1,305 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { applyDrawingToChart } from "../utils";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getMarketDrawingsFromBackend,
+  saveMarketDrawingsToBackend,
+} from "@/lib/backend-market";
+import {
+  cloneDrawing,
+  cloneDrawings,
+  createDrawingId,
+  normalizeDrawing,
+} from "../drawings/drawingDefaults";
 
-export function useDrawings({ activeTool, chartRef, currency, setActiveTool }) {
-  const [tempDrawingPoints, setTempDrawingPoints] = useState([]);
+const HISTORY_LIMIT = 75;
+const PERSISTENCE_TIMEFRAME = "all";
+
+const updateTimestamp = (drawing) => ({
+  ...drawing,
+  version: (Number(drawing.version) || 0) + 1,
+  updatedAt: new Date().toISOString(),
+});
+
+export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
   const [drawingObjects, setDrawingObjects] = useState([]);
-  const drawingSeriesRefs = useRef([]);
+  const [selectedDrawingId, setSelectedDrawingId] = useState(null);
+  const [persistenceState, setPersistenceState] = useState("loading");
+  const [persistenceError, setPersistenceError] = useState(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const hydratedKeyRef = useRef(null);
+  const activeKeyRef = useRef(null);
+  const drawingObjectsRef = useRef([]);
+  const historyRef = useRef({ past: [], future: [] });
+  const loadSucceededKeyRef = useRef(null);
+  const transactionRef = useRef(null);
+  const isTransactionActiveRef = useRef(false);
 
-  const clearDrawingObjects = useCallback(() => {
-    drawingSeriesRefs.current.forEach((series) => {
-      if (chartRef.current && series) {
-        try {
-          chartRef.current.removeSeries(series);
-        } catch {}
-      }
-    });
-
-    drawingSeriesRefs.current = [];
-    setDrawingObjects([]);
-    setActiveTool(null);
-    setTempDrawingPoints([]);
-  }, [chartRef, setActiveTool]);
-
-  const handleChartClick = useCallback(
-    (param, seriesRef) => {
-      if (!activeTool || !param.point || !param.time || !seriesRef.current) return;
-
-      const price = seriesRef.current.coordinateToPrice(param.point.y);
-      if (price === null) return;
-
-      const newPoint = { time: param.time, price, logical: param.logical };
-
-      setTempDrawingPoints((previousPoints) => {
-        const updatedPoints = [...previousPoints, newPoint];
-
-        if (updatedPoints.length === 2 && activeTool === "trendline") {
-          setDrawingObjects((previousDrawings) => [
-            ...previousDrawings,
-            { id: Date.now(), type: activeTool, points: [...updatedPoints] },
-          ]);
-          setActiveTool(null);
-          return [];
-        }
-
-        return updatedPoints;
-      });
-    },
-    [activeTool, setActiveTool]
-  );
+  const persistenceKey = `${ownerId || "anonymous"}:${selectedSymbol || "none"}`;
 
   useEffect(() => {
-    drawingSeriesRefs.current.forEach((series) => {
-      if (chartRef.current && series) {
-        try {
-          chartRef.current.removeSeries(series);
-        } catch {}
-      }
-    });
-    drawingSeriesRefs.current = [];
+    drawingObjectsRef.current = drawingObjects;
+  }, [drawingObjects]);
 
-    drawingObjects.forEach((object) => {
-      if (!chartRef.current) return;
-      const newSeries = applyDrawingToChart(chartRef.current, object, currency);
-      if (newSeries) drawingSeriesRefs.current.push(newSeries);
+  const pushHistory = useCallback((previousObjects) => {
+    historyRef.current.past = [
+      ...historyRef.current.past.slice(-(HISTORY_LIMIT - 1)),
+      cloneDrawings(previousObjects),
+    ];
+    historyRef.current.future = [];
+    setHistoryVersion((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const requestKey = persistenceKey;
+    activeKeyRef.current = requestKey;
+    hydratedKeyRef.current = null;
+    loadSucceededKeyRef.current = null;
+    historyRef.current = { past: [], future: [] };
+    transactionRef.current = null;
+    isTransactionActiveRef.current = false;
+    setHistoryVersion((value) => value + 1);
+    setSelectedDrawingId(null);
+    setDrawingObjects([]);
+    setPersistenceError(null);
+    setPersistenceState("loading");
+
+    if (!selectedSymbol || !ownerId) {
+      hydratedKeyRef.current = requestKey;
+      setPersistenceState(ownerId ? "saved" : "unavailable");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    getMarketDrawingsFromBackend({
+      symbol: selectedSymbol,
+      timeframe: PERSISTENCE_TIMEFRAME,
+    })
+      .then((objects) => {
+        if (cancelled || activeKeyRef.current !== requestKey) return;
+        const normalized = (Array.isArray(objects) ? objects : [])
+          .map((drawing) => normalizeDrawing(drawing, {
+            symbol: selectedSymbol,
+            timeframe: currentTimeframe,
+            ownerId,
+          }))
+          .filter((drawing) => drawing.anchors.length > 0);
+        setDrawingObjects(normalized);
+        hydratedKeyRef.current = requestKey;
+        loadSucceededKeyRef.current = requestKey;
+        setPersistenceState("saved");
+      })
+      .catch((error) => {
+        if (cancelled || activeKeyRef.current !== requestKey) return;
+        console.error("drawing load error", error);
+        hydratedKeyRef.current = requestKey;
+        setPersistenceError(error);
+        setPersistenceState("error");
+      });
+
+    return () => {
+      cancelled = true;
+      if (loadSucceededKeyRef.current === requestKey && selectedSymbol && ownerId) {
+        void saveMarketDrawingsToBackend({
+          symbol: selectedSymbol,
+          timeframe: PERSISTENCE_TIMEFRAME,
+          objects: drawingObjectsRef.current,
+        }).catch((error) => console.error("drawing flush error", error));
+      }
+    };
+  }, [ownerId, persistenceKey, selectedSymbol]);
+
+  useEffect(() => {
+    if (
+      !selectedSymbol ||
+      !ownerId ||
+      hydratedKeyRef.current !== persistenceKey ||
+      isTransactionActiveRef.current
+    ) {
+      return undefined;
+    }
+
+    setPersistenceState("saving");
+    const timeoutId = window.setTimeout(() => {
+      saveMarketDrawingsToBackend({
+        symbol: selectedSymbol,
+        timeframe: PERSISTENCE_TIMEFRAME,
+        objects: drawingObjects,
+      })
+        .then(() => {
+          if (activeKeyRef.current !== persistenceKey) return;
+          setPersistenceError(null);
+          setPersistenceState("saved");
+        })
+        .catch((error) => {
+          if (activeKeyRef.current !== persistenceKey) return;
+          console.error("drawing save error", error);
+          setPersistenceError(error);
+          setPersistenceState("error");
+        });
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [drawingObjects, ownerId, persistenceKey, selectedSymbol]);
+
+  const commitObjects = useCallback((producer, { recordHistory = true } = {}) => {
+    setDrawingObjects((previous) => {
+      const next = typeof producer === "function" ? producer(previous) : producer;
+      if (next === previous) return previous;
+      if (recordHistory) pushHistory(previous);
+      return next;
     });
-  }, [chartRef, currency, drawingObjects]);
+  }, [pushHistory]);
+
+  const addDrawing = useCallback((drawing) => {
+    commitObjects((previous) => [...previous, drawing]);
+    setSelectedDrawingId(drawing.id);
+  }, [commitObjects]);
+
+  const updateDrawing = useCallback((drawingId, patchOrProducer, options) => {
+    commitObjects((previous) => previous.map((drawing) => {
+      if (drawing.id !== drawingId) return drawing;
+      const patch = typeof patchOrProducer === "function" ? patchOrProducer(drawing) : patchOrProducer;
+      return updateTimestamp({ ...drawing, ...patch });
+    }), options);
+  }, [commitObjects]);
+
+  const removeDrawing = useCallback((drawingId) => {
+    commitObjects((previous) => previous.filter((drawing) => drawing.id !== drawingId));
+    setSelectedDrawingId((selectedId) => selectedId === drawingId ? null : selectedId);
+  }, [commitObjects]);
+
+  const clearDrawingObjects = useCallback(() => {
+    commitObjects([]);
+    setSelectedDrawingId(null);
+  }, [commitObjects]);
+
+  const duplicateDrawing = useCallback((drawingId) => {
+    let duplicateId = null;
+    commitObjects((previous) => {
+      const source = previous.find((drawing) => drawing.id === drawingId);
+      if (!source) return previous;
+      duplicateId = createDrawingId();
+      const now = new Date().toISOString();
+      const duplicate = {
+        ...cloneDrawing(source),
+        id: duplicateId,
+        name: source.name ? `${source.name} copy` : "",
+        anchors: source.anchors.map((anchor) => ({
+          ...anchor,
+          price: Number(anchor.price) * 1.002,
+          logical: Number.isFinite(anchor.logical) ? anchor.logical + 2 : anchor.logical,
+          candleIndex: Number.isFinite(anchor.candleIndex) ? anchor.candleIndex + 2 : anchor.candleIndex,
+        })),
+        state: { ...source.state, locked: false, hidden: false, selected: false },
+        zIndex: Math.max(0, ...previous.map((drawing) => Number(drawing.zIndex) || 0)) + 1,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      return [...previous, duplicate];
+    });
+    if (duplicateId) setSelectedDrawingId(duplicateId);
+  }, [commitObjects]);
+
+  const reorderDrawing = useCallback((drawingId, direction) => {
+    commitObjects((previous) => {
+      const ordered = [...previous].sort((left, right) => (left.zIndex || 0) - (right.zIndex || 0));
+      const index = ordered.findIndex((drawing) => drawing.id === drawingId);
+      const swapIndex = direction === "front" ? index + 1 : index - 1;
+      if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return previous;
+      const currentZ = ordered[index].zIndex;
+      ordered[index] = updateTimestamp({ ...ordered[index], zIndex: ordered[swapIndex].zIndex });
+      ordered[swapIndex] = updateTimestamp({ ...ordered[swapIndex], zIndex: currentZ });
+      return ordered;
+    });
+  }, [commitObjects]);
+
+  const beginTransaction = useCallback(() => {
+    if (transactionRef.current) return;
+    setDrawingObjects((current) => {
+      transactionRef.current = cloneDrawings(current);
+      isTransactionActiveRef.current = true;
+      return current;
+    });
+  }, []);
+
+  const updateDrawingTransient = useCallback((drawingId, producer) => {
+    setDrawingObjects((previous) => previous.map((drawing) =>
+      drawing.id === drawingId ? producer(drawing) : drawing
+    ));
+  }, []);
+
+  const commitTransaction = useCallback(() => {
+    const original = transactionRef.current;
+    transactionRef.current = null;
+    isTransactionActiveRef.current = false;
+    if (!original) return;
+    pushHistory(original);
+    const originalById = new Map(original.map((drawing) => [drawing.id, drawing]));
+    setDrawingObjects((previous) => previous.map((drawing) => {
+      const before = originalById.get(drawing.id);
+      return before && JSON.stringify(before.anchors) === JSON.stringify(drawing.anchors)
+        ? drawing
+        : updateTimestamp(drawing);
+    }));
+  }, [pushHistory]);
+
+  const cancelTransaction = useCallback(() => {
+    const original = transactionRef.current;
+    transactionRef.current = null;
+    isTransactionActiveRef.current = false;
+    if (original) setDrawingObjects(original);
+  }, []);
+
+  const undo = useCallback(() => {
+    const previousSnapshot = historyRef.current.past.pop();
+    if (!previousSnapshot) return;
+    setDrawingObjects((current) => {
+      historyRef.current.future = [cloneDrawings(current), ...historyRef.current.future].slice(0, HISTORY_LIMIT);
+      return cloneDrawings(previousSnapshot);
+    });
+    setSelectedDrawingId(null);
+    setHistoryVersion((value) => value + 1);
+  }, []);
+
+  const redo = useCallback(() => {
+    const nextSnapshot = historyRef.current.future.shift();
+    if (!nextSnapshot) return;
+    setDrawingObjects((current) => {
+      historyRef.current.past = [...historyRef.current.past, cloneDrawings(current)].slice(-HISTORY_LIMIT);
+      return cloneDrawings(nextSnapshot);
+    });
+    setSelectedDrawingId(null);
+    setHistoryVersion((value) => value + 1);
+  }, []);
+
+  const selectedDrawing = useMemo(
+    () => drawingObjects.find((drawing) => drawing.id === selectedDrawingId) ?? null,
+    [drawingObjects, selectedDrawingId]
+  );
 
   return {
+    addDrawing,
+    beginTransaction,
+    canRedo: historyRef.current.future.length > 0,
+    canUndo: historyRef.current.past.length > 0,
+    cancelTransaction,
     clearDrawingObjects,
+    commitTransaction,
     drawingObjects,
-    handleChartClick,
-    hasDrawings: drawingObjects.length > 0 || tempDrawingPoints.length > 0,
-    tempDrawingPoints,
+    duplicateDrawing,
+    historyVersion,
+    persistenceError,
+    persistenceState,
+    redo,
+    removeDrawing,
+    reorderDrawing,
+    selectedDrawing,
+    selectedDrawingId,
+    setSelectedDrawingId,
+    undo,
+    updateDrawing,
+    updateDrawingTransient,
   };
 }

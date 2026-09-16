@@ -19,8 +19,9 @@ import {
   formatUnixSecondsInTimezone,
   getDefaultTimezone,
 } from "@/lib/timezones";
+import DrawingObjectsPanel from "@/components/PriceChart/drawings/DrawingObjectsPanel";
 
-const WorkspaceUtilityRail = ({ activePanel, onTogglePanel }) => {
+const WorkspaceUtilityRail = ({ activePanel, drawingWorkspace, onTogglePanel }) => {
   const { t } = useTranslation();
   const { preferencesState, updatePreferencesState, updateUser, user } = useTradingContext();
   const [clockUnixSeconds, setClockUnixSeconds] = useState(() => Math.floor(Date.now() / 1000));
@@ -159,21 +160,27 @@ const WorkspaceUtilityRail = ({ activePanel, onTogglePanel }) => {
           </div>
 
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-            <div className="rounded-2xl border border-border/80 bg-secondary/45 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{t("workspaceRail.activeAsset")}</p>
-              <p className="mt-2 text-xl font-semibold text-foreground">BTCUSD</p>
-              <p className="mt-1 text-sm text-muted-foreground">{t("workspaceRail.contextualPanel")}</p>
-            </div>
+            {activePanel === "layers" ? (
+              <DrawingObjectsPanel workspace={drawingWorkspace} />
+            ) : (
+              <>
+                <div className="rounded-2xl border border-border/80 bg-secondary/45 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{t("workspaceRail.activeAsset")}</p>
+                  <p className="mt-2 text-xl font-semibold text-foreground">{drawingWorkspace?.symbol || "—"}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{t("workspaceRail.contextualPanel")}</p>
+                </div>
 
-            <div className="rounded-2xl border border-border/80 bg-secondary/45 p-4">
-              <p className="text-sm text-muted-foreground">
-                {t("workspaceRail.utilitiesDescription")}
-              </p>
-            </div>
+                <div className="rounded-2xl border border-border/80 bg-secondary/45 p-4">
+                  <p className="text-sm text-muted-foreground">
+                    {t("workspaceRail.utilitiesDescription")}
+                  </p>
+                </div>
 
-            <div className="rounded-2xl border border-dashed border-border/80 p-4 text-sm text-muted-foreground">
-              {t("workspaceRail.extensionDescription")}
-            </div>
+                <div className="rounded-2xl border border-dashed border-border/80 p-4 text-sm text-muted-foreground">
+                  {t("workspaceRail.extensionDescription")}
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}

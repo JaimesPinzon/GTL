@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { BellPlus, Minus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useTradingWorkspace } from "@/features/classes/hooks/useTradingWorkspace";
 import ChartHeader from "./PriceChart/ChartHeader";
@@ -10,6 +10,7 @@ import { usePriceOverlay } from "./PriceChart/hooks/usePriceOverlay";
 import { useMainChart } from "./PriceChart/hooks/useMainChart";
 import { useMacdChart } from "./PriceChart/hooks/useMacdChart";
 import { useTranslation } from "react-i18next";
+import DrawingLayer from "./PriceChart/drawings/DrawingLayer";
 
 const PriceChart = ({
   chartType,
@@ -18,6 +19,7 @@ const PriceChart = ({
   setIsFullScreen,
   chartAppearance,
   onRegisterActions,
+  onDrawingWorkspaceChange,
   activeTool,
   setActiveTool,
   showToolSidebar = true,
@@ -32,6 +34,8 @@ const PriceChart = ({
   const seriesRef = useRef(null);
   const renderedDataRef = useRef([]);
   const syncMacdVisibilityRef = useRef(() => {});
+  const [magnetMode, setMagnetMode] = useState("weak");
+  const [keepToolActive, setKeepToolActive] = useState(false);
 
   const {
     selectedSymbol,
@@ -82,8 +86,14 @@ const PriceChart = ({
 
   const drawings = useDrawingTools({
     activeTool,
+    chartContainerRef,
     chartRef,
-    currency,
+    currentTimeframe,
+    keepToolActive,
+    magnetMode,
+    ownerId: user?.id || user?.user_id || null,
+    renderedDataRef,
+    selectedSymbol,
     seriesRef,
     setActiveTool,
   });
@@ -98,7 +108,18 @@ const PriceChart = ({
     syncMacdVisibilityRef.current?.();
   }, []);
 
-  useMainChart({
+  const handleChartCrosshairMove = useCallback((param) => {
+    overlay.handleCrosshairMove(param);
+    drawings.handleCrosshairMove(param);
+  }, [drawings.handleCrosshairMove, overlay.handleCrosshairMove]);
+
+  const requestClearDrawings = useCallback(() => {
+    if (window.confirm(t("priceChart.drawings.clearConfirm"))) {
+      drawings.clearDrawingObjects();
+    }
+  }, [drawings.clearDrawingObjects, t]);
+
+  const { chartRevision } = useMainChart({
     chartAppearance,
     chartLocale,
     chartTimezone,
@@ -107,11 +128,10 @@ const PriceChart = ({
     containerRef: chartContainerRef,
     currency,
     currentTimeframe,
-    drawingSeriesRefs: drawings.drawingSeriesRefs,
     formattedSeriesData,
     isFullScreen,
     onChartClick: drawings.handleChartClick,
-    onCrosshairMove: overlay.handleCrosshairMove,
+    onCrosshairMove: handleChartCrosshairMove,
     onRegisterActions,
     processedData,
     renderedDataRef,
@@ -123,6 +143,45 @@ const PriceChart = ({
     progressiveHistoryEnabled,
     syncMacdVisibility: handleSyncMacdVisibility,
   });
+
+  useEffect(() => {
+    onDrawingWorkspaceChange?.({
+      symbol: selectedSymbol,
+      timeframe: currentTimeframe,
+      drawings: drawings.drawingObjects,
+      selectedDrawingId: drawings.selectedDrawingId,
+      persistenceState: drawings.persistenceState,
+      persistenceError: drawings.persistenceError?.message || null,
+      actions: {
+        select: drawings.selectDrawing,
+        update: drawings.updateDrawing,
+        remove: drawings.removeDrawing,
+        duplicate: drawings.duplicateDrawing,
+        reorder: drawings.reorderDrawing,
+        clear: drawings.clearDrawingObjects,
+        undo: drawings.undo,
+        redo: drawings.redo,
+      },
+    });
+  }, [
+    currentTimeframe,
+    drawings.clearDrawingObjects,
+    drawings.drawingObjects,
+    drawings.duplicateDrawing,
+    drawings.persistenceError,
+    drawings.persistenceState,
+    drawings.redo,
+    drawings.removeDrawing,
+    drawings.reorderDrawing,
+    drawings.selectDrawing,
+    drawings.selectedDrawingId,
+    drawings.undo,
+    drawings.updateDrawing,
+    onDrawingWorkspaceChange,
+    selectedSymbol,
+  ]);
+
+  useEffect(() => () => onDrawingWorkspaceChange?.(null), [onDrawingWorkspaceChange]);
 
   const { syncMacdVisibility } = useMacdChart({
     chartAppearance,
@@ -147,14 +206,14 @@ const PriceChart = ({
     }
 
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && drawings.interactionMode === "idle" && !activeTool) {
         setIsFullScreen(false);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isFullScreen, setIsFullScreen]);
+  }, [activeTool, drawings.interactionMode, isFullScreen, setIsFullScreen]);
 
   const currentOHLC = visibleOhlcData.length > 0 ? visibleOhlcData[visibleOhlcData.length - 1] : {};
   const previousOHLC = visibleOhlcData.length > 1 ? visibleOhlcData[visibleOhlcData.length - 2] : {};
@@ -192,7 +251,7 @@ const PriceChart = ({
         priceChangePercent={priceChangePercent}
         currency={currency}
         chartAppearance={chartAppearance}
-        clearDrawings={drawings.clearDrawingObjects}
+        clearDrawings={requestClearDrawings}
         hasDrawings={drawings.hasDrawings}
       />
 
@@ -203,16 +262,41 @@ const PriceChart = ({
       >
         <ChartToolSidebar
           activeTool={activeTool}
+          keepToolActive={keepToolActive}
+          magnetMode={magnetMode}
           onSelectTool={setActiveTool}
           onClear={drawings.clearDrawingObjects}
+          onSetKeepToolActive={setKeepToolActive}
+          onSetMagnetMode={setMagnetMode}
           isPinned={showToolSidebar}
-          className="absolute inset-y-0 left-0 z-20"
+          className="absolute inset-y-0 left-0 z-30"
         />
 
         <div
           className={`chart-container h-full min-h-0 ${overlay.isOverPriceUI ? "cursor-default" : "cursor-crosshair"}`}
           ref={chartContainerRef}
           style={{ height: "100%" }}
+        />
+
+        <DrawingLayer
+          activeTool={activeTool}
+          chartContainerRef={chartContainerRef}
+          chartRef={chartRef}
+          chartRevision={chartRevision}
+          currency={currency}
+          currentTimeframe={currentTimeframe}
+          drawings={drawings.visibleDrawings}
+          onBeginDrag={drawings.beginDrag}
+          onDuplicate={drawings.duplicateDrawing}
+          onRemove={drawings.removeDrawing}
+          onReorder={drawings.reorderDrawing}
+          onSelect={drawings.selectDrawing}
+          onUpdate={drawings.updateDrawing}
+          previewDrawing={drawings.previewDrawing}
+          renderedDataRef={renderedDataRef}
+          selectedDrawing={drawings.selectedDrawing}
+          selectedDrawingId={drawings.selectedDrawingId}
+          seriesRef={seriesRef}
         />
 
         {progressiveHistoryEnabled && isLoadingOlderHistory ? (

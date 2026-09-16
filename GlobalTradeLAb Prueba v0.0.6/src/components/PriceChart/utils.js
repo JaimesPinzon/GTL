@@ -598,35 +598,6 @@ export const calculateMACD = (data, shortPeriod = 12, longPeriod = 26, signalPer
   return { macdLine, signalLine, histogram };
 };
 
-export const applyDrawingToChart = (chart, drawingObject, currency) => {
-  if (!chart || !drawingObject || !drawingObject.points || drawingObject.points.length < 2) {
-    return null;
-  }
-
-  const [startPoint, endPoint] = drawingObject.points;
-  const lineData = [
-    { time: startPoint.time, value: startPoint.price },
-    { time: endPoint.time, value: endPoint.price }
-  ];
-
-  const priceFormat = getPriceFormat(startPoint.price, currency);
-
-  if (drawingObject.type === 'trendline') {
-    const lineSeries = chart.addLineSeries({
-      color: 'rgba(255, 255, 0, 0.7)', 
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      priceFormat: priceFormat,
-      lineStyle: LineStyle.Solid, 
-      crosshairMarkerVisible: false,
-    });
-    lineSeries.setData(lineData);
-    return lineSeries;
-  }
-  return null; 
-};
-
 export const aggregateDataForTimeframe = (data, timeframe, timezone = null) => {
   if (!data || data.length === 0) return [];
   if (MINUTE_TIMEFRAMES.has(timeframe)) return normalizeDataForTimeframe(data, timeframe, timezone);
