@@ -220,6 +220,7 @@ const es = {
       closePositionNotice: "Puedes cerrar tus posiciones desde la sección de Posiciones.",
       justificationRequiredNotice: "La justificación es obligatoria para cada operación.",
       submit: "{{side}} {{symbol}}",
+      submitting: "Enviando...",
       fileTooLargeTitle: "Archivo demasiado grande",
       fileTooLargeDescription: "El tamaño máximo permitido es de 2 MB.",
       invalidFileTypeTitle: "Formato de archivo no válido",

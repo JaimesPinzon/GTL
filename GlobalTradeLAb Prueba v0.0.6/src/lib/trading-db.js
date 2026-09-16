@@ -1,6 +1,7 @@
 ﻿import { getCachedSupabaseAccessToken, supabase } from "@/lib/supabase";
 import { getBackendUrl } from "@/lib/env";
 import { getAccessToken } from "@/lib/auth-api";
+import { fetchRoomPortfolio } from "@/lib/room-trades";
 
 let isBackendLeaveEndpointUnavailable = false;
 
@@ -142,6 +143,7 @@ export async function fetchAccessibleProfiles(currentProfile) {
 }
 
 export async function fetchPortfolio(userId, roomId = null) {
+  if (roomId) return fetchRoomPortfolio(userId, roomId);
   const positionsQuery = supabase
     .from("positions")
     .select("*")

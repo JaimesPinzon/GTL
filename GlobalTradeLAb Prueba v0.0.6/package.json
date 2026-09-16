@@ -4,6 +4,7 @@
   "version": "0.0.6",
   "private": true,
   "scripts": {
+    "test:operating": "node --test scripts/test-trade-form.mjs scripts/test-operating-data.mjs scripts/test-operating-integration.mjs scripts/test-room-loading.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
@@ -51,6 +52,7 @@
     "eslint": "^8.57.1",
     "eslint-config-react-app": "^7.0.1",
     "postcss": "^8.4.31",
+    "react-test-renderer": "18.3.1",
     "tailwindcss": "^3.3.3",
     "terser": "^5.39.0",
     "vite": "^6.3.5"

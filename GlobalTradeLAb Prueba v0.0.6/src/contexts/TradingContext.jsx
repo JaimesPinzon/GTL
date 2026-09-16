@@ -11,6 +11,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useAuthManager } from "@/hooks/useAuthManager";
 import { usePortfolioManager } from "@/hooks/usePortfolioManager";
+import { useActiveRoomAccount } from "@/hooks/useActiveRoomAccount";
+import { useRoomWorkspaceData } from "@/hooks/useRoomWorkspaceData";
 import { useTranslation } from "react-i18next";
 import { restoreSession, subscribeToAuthEvents } from "@/lib/auth-api";
 import { clearSupabaseAuthStorage, supabase } from "@/lib/supabase";
@@ -23,8 +25,6 @@ import {
   fetchPortfolio,
   fetchProfile,
   fetchRoomHistory,
-  fetchRoomMembers,
-  fetchRoomSimAccounts,
   fetchStudentRooms,
   fetchTeacherRooms,
   ensureRoomMemberTradingFields,
@@ -219,6 +219,7 @@ export const TradingProvider = ({ children }) => {
   const [rooms, setRooms] = useState([]);
   const [roomMembers, setRoomMembers] = useState([]);
   const [roomAccounts, setRoomAccounts] = useState([]);
+  const activeRoomAccountResourceRef = useRef(null);
   const [roomPortfolios, setRoomPortfolios] = useState({});
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [connectionIssue, setConnectionIssue] = useState(null);
@@ -826,6 +827,10 @@ export const TradingProvider = ({ children }) => {
           availableBalance: updates.balance,
         });
 
+        const previousAccount = activeRoomAccountResourceRef.current?.getSnapshot().account;
+        if (previousAccount?.roomId === activeRoomId) {
+          activeRoomAccountResourceRef.current.commit({ ...previousAccount, ...roomBalance, roomId: activeRoomId });
+        }
         updatedRoomBalance = roomBalance;
         nextRoomBalance = roomBalance.availableBalance;
 
@@ -1066,15 +1071,6 @@ export const TradingProvider = ({ children }) => {
   }, [authenticatedUserId, currentUser?.id, currentUserId]);
   const effectiveRoomUserId = roomUserIdCandidates[0] || null;
   const effectiveRoomMutationUserId = authenticatedUserId || null;
-  const matchesRoomUserCandidate = useCallback(
-    (candidateUserId) => roomUserIdCandidates.includes(String(candidateUserId || "").trim()),
-    [roomUserIdCandidates]
-  );
-  const canMutateActiveRoomMembership = Boolean(
-    effectiveRoomMutationUserId &&
-      activeRoom?.createdBy &&
-      activeRoom.createdBy === effectiveRoomMutationUserId
-  );
   const directActiveRoomAccount = resolveUserRoomAccount({
     roomId: activeRoomId,
     userId: effectiveRoomUserId,
@@ -1082,77 +1078,40 @@ export const TradingProvider = ({ children }) => {
     roomAccounts,
     roomMembers,
   });
-  const studentSingleAccountFallback = useMemo(() => {
-    if (!activeRoomId || currentUser?.role !== "student") {
-      return null;
-    }
-
-    const activeAccountsInRoom = (roomAccounts || []).filter((account) => {
-      if (account?.roomId !== activeRoomId) {
-        return false;
-      }
-
-      const state = String(account?.state || "active").toLowerCase();
-      return state === "active";
-    });
-
-    if (activeAccountsInRoom.length === 1) {
-      return activeAccountsInRoom[0];
-    }
-
-    const activeMembersInRoom = (roomMembers || []).filter((member) => {
-      if (member?.roomId !== activeRoomId) {
-        return false;
-      }
-
-      const state = String(member?.state || "active").toLowerCase();
-      return state === "active";
-    });
-
-    if (activeMembersInRoom.length !== 1) {
-      return null;
-    }
-
-    const onlyMember = activeMembersInRoom[0];
-    const availableBalance = Number(onlyMember?.individualAvailableBalance ?? 0);
-    const blockedBalance = Number(onlyMember?.individualBlockedBalance ?? 0);
-    const totalBalance = Number(
-      onlyMember?.individualTotalBalance ??
-        availableBalance + blockedBalance
-    );
-
-    return {
-      id: onlyMember?.id ? `rm:${onlyMember.id}` : `rm:${activeRoomId}:single`,
-      roomId: activeRoomId,
-      userId: onlyMember?.userId || effectiveRoomUserId || null,
-      availableBalance: Number.isFinite(availableBalance) ? availableBalance : 0,
-      blockedBalance: Number.isFinite(blockedBalance) ? blockedBalance : 0,
-      totalBalance: Number.isFinite(totalBalance) ? totalBalance : 0,
-      currency: onlyMember?.individualCurrency || activeRoom?.defaultCurrency || "USD",
-      state: "active",
-      ownerType: "user",
-      ownerGroupId: null,
-      isShared: false,
-      createdAt: onlyMember?.joinedAt || null,
-      updatedAt: null,
-    };
-  }, [
-    activeRoom?.defaultCurrency,
-    activeRoomId,
-    currentUser?.role,
-    effectiveRoomUserId,
-    roomAccounts,
-    roomMembers,
-  ]);
-  const activeRoomAccount = directActiveRoomAccount || studentSingleAccountFallback;
+  const roomAccountState = useActiveRoomAccount({
+    roomId: activeRoomId,
+    userIds: roomUserIdCandidates,
+    knownAccount: directActiveRoomAccount,
+  });
+  activeRoomAccountResourceRef.current = roomAccountState.resource;
+  const activeRoomAccount = roomAccountState.account ||
+    (roomAccountState.status === "loading" ? directActiveRoomAccount : null);
+  const activeRoomAccountStatus = activeRoomAccount ? "ready" : roomAccountState.status;
+  const refreshRoomAccount = roomAccountState.resource.refresh;
 
   const resolvedContextBalance = activeRoomId
-    ? activeRoomAccount?.availableBalance ?? 0
+    ? activeRoomAccount?.availableBalance ?? null
     : currentUser?.balance ?? 0;
 
-  const { openPosition, closePosition } = usePortfolioManager({
+  const tradeScopeRef = useRef(null);
+  tradeScopeRef.current = `${activeRoomId || ''}:${currentUser?.id || ''}`;
+  const commitRoomTrade = useCallback((result) => {
+    if (tradeScopeRef.current !== `${activeRoomId || ''}:${currentUser?.id || ''}`) return;
+    activeRoomAccountResourceRef.current?.commit(result.account);
+    setCurrentUser((previous) => previous ? { ...previous, positions: result.positions, transactions: result.transactions } : previous);
+    setRoomAccounts((previous) => {
+      const exists = previous.some((account) => account.roomId === activeRoomId && account.userId === result.account.userId);
+      const rows = previous.map((account) => account.roomId === activeRoomId && (account.userId === result.account.userId
+        || (result.account.isShared && account.ownerGroupId === result.account.ownerGroupId))
+        ? { ...account, availableBalance: result.account.availableBalance, blockedBalance: result.account.blockedBalance, totalBalance: result.account.totalBalance }
+        : account);
+      return exists ? rows : [...rows, result.account];
+    });
+  }, [activeRoomId, currentUser?.id]);
+
+  const { openPosition, closePosition, isSubmittingTrade } = usePortfolioManager({
     currentUser,
-    updateUser,
+    onTradeCommitted: commitRoomTrade,
     toast,
     activeRoom,
     currentBalance: resolvedContextBalance,
@@ -1181,169 +1140,24 @@ export const TradingProvider = ({ children }) => {
           })
       : [];
 
-  const seedMissingRoomMemberBalances = useCallback(
-    async ({ roomId, members, accounts, defaultBalance, defaultCurrency, canMutate = false }) => {
-      const numericDefaultBalance = Number(defaultBalance ?? 0);
-      if (!roomId || !Number.isFinite(numericDefaultBalance) || numericDefaultBalance <= 0) {
-        return accounts;
-      }
-
-      if (!canMutate) {
-        return accounts;
-      }
-
-      if (!Array.isArray(members) || members.length === 0) {
-        return accounts;
-      }
-
-      const accountByUserId = new Map((accounts || []).map((account) => [account.userId, account]));
-      const membersNeedingSeed = members.filter((member) => {
-        const account = accountByUserId.get(member.userId);
-        if (!account) {
-          return true;
-        }
-
-        const available = Number(account.availableBalance ?? 0);
-        const blocked = Number(account.blockedBalance ?? 0);
-        const total = Number(account.totalBalance ?? 0);
-
-        return available <= 0 && blocked <= 0 && total <= 0;
-      });
-
-      if (membersNeedingSeed.length === 0) {
-        return accounts;
-      }
-
-      await Promise.allSettled(
-        membersNeedingSeed.map((member) =>
-          ensureRoomMemberTradingFields({
-            roomId,
-            userId: member.userId,
-            defaultBalance: numericDefaultBalance,
-            defaultCurrency: defaultCurrency || "USD",
-          })
-        )
-      );
-
-      return fetchRoomSimAccounts(roomId);
-    },
-    []
-  );
-
   const isAuthenticated = Boolean(currentUserId);
+  const applyCurrentRoomPortfolio = useCallback((portfolio) => {
+    setCurrentUser((previous) => previous ? {
+      ...previous,
+      positions: portfolio.positions,
+      transactions: portfolio.transactions,
+    } : previous);
+  }, []);
 
-  const refreshActiveRoomData = useCallback(async () => {
-    if (!activeRoomId) {
-      setRoomMembers([]);
-      setRoomAccounts([]);
-      setRoomPortfolios({});
-      return;
-    }
-
-    if (canMutateActiveRoomMembership) {
-      const currentRoom = rooms.find((room) => room.id === activeRoomId) || null;
-      try {
-        await ensureRoomMemberTradingFields({
-          roomId: activeRoomId,
-          userId: effectiveRoomMutationUserId,
-          defaultBalance: Number(currentRoom?.defaultBalance ?? 0),
-          defaultCurrency: currentRoom?.defaultCurrency || "USD",
-          createIfMissingRole: "teacher",
-        });
-      } catch (error) {
-        console.warn("refreshActiveRoomData ensureRoomMemberTradingFields warning", error);
-      }
-    }
-
-    let [nextMembers, nextAccounts] = await Promise.all([
-      fetchRoomMembers(activeRoomId),
-      fetchRoomSimAccounts(activeRoomId),
-    ]);
-    let hydratedAccounts = nextAccounts;
-    const currentRoom = rooms.find((room) => room.id === activeRoomId) || null;
-    try {
-      hydratedAccounts = await seedMissingRoomMemberBalances({
-        roomId: activeRoomId,
-        members: nextMembers,
-        accounts: nextAccounts,
-        defaultBalance: Number(currentRoom?.defaultBalance ?? 0),
-        defaultCurrency: currentRoom?.defaultCurrency || "USD",
-        canMutate: canMutateActiveRoomMembership,
-      });
-    } catch (error) {
-      console.warn("refreshActiveRoomData seedMissingRoomMemberBalances warning", error);
-    }
-    if (
-      canMutateActiveRoomMembership &&
-      !hydratedAccounts.some((account) => account.userId === effectiveRoomMutationUserId)
-    ) {
-      try {
-        await ensureRoomMemberTradingFields({
-          roomId: activeRoomId,
-          userId: effectiveRoomMutationUserId,
-          defaultBalance: Number(currentRoom?.defaultBalance ?? 0),
-          defaultCurrency: currentRoom?.defaultCurrency || "USD",
-          createIfMissingRole: "teacher",
-        });
-        [nextMembers, hydratedAccounts] = await Promise.all([
-          fetchRoomMembers(activeRoomId),
-          fetchRoomSimAccounts(activeRoomId),
-        ]);
-      } catch (error) {
-        console.warn("refreshActiveRoomData rehydrateCurrentAccount warning", error);
-      }
-    }
-    const memberPortfolios = await Promise.all(
-      nextMembers
-        .filter((member) => member.roleInRoom === "student")
-        .map(async (member) => [member.userId, await fetchPortfolio(member.userId, activeRoomId)])
-    );
-    setRoomMembers(nextMembers);
-    setRoomAccounts(hydratedAccounts);
-    setRoomPortfolios(Object.fromEntries(memberPortfolios));
-    if (effectiveRoomUserId) {
-      try {
-        const nextPortfolio = await fetchPortfolio(effectiveRoomUserId, activeRoomId);
-        const matchedAccount = hydratedAccounts.find((account) => matchesRoomUserCandidate(account.userId));
-        const currentAccount =
-          matchedAccount ||
-          (currentUser?.role === "student" && hydratedAccounts.length === 1
-            ? hydratedAccounts[0]
-            : null);
-        setCurrentUser((previous) =>
-          previous
-            ? {
-                ...previous,
-                balance: currentAccount?.availableBalance ?? previous.balance ?? 0,
-                positions: nextPortfolio.positions,
-                transactions: nextPortfolio.transactions,
-              }
-            : previous
-        );
-      } catch (error) {
-        console.error("refreshCurrentStudentPortfolio error", error);
-      }
-    }
-  }, [
-    activeRoomId,
-    canMutateActiveRoomMembership,
-    currentUser?.role,
-    effectiveRoomMutationUserId,
-    effectiveRoomUserId,
-    rooms,
-    matchesRoomUserCandidate,
-    seedMissingRoomMemberBalances,
-  ]);
-
-  useEffect(() => {
-    if (!activeRoomId || !effectiveRoomUserId) {
-      return;
-    }
-
-    void refreshActiveRoomData().catch((error) => {
-      console.error("refreshActiveRoomData effect error", error);
-    });
-  }, [activeRoomId, effectiveRoomUserId, refreshActiveRoomData]);
+  const { refresh: refreshActiveRoomData, portfolioStatus: roomPortfolioStatus } = useRoomWorkspaceData({
+    roomId: activeRoomId,
+    userId: effectiveRoomUserId,
+    userRole: currentUser?.role,
+    onMembers: setRoomMembers,
+    onAccounts: setRoomAccounts,
+    onPortfolios: setRoomPortfolios,
+    onCurrentPortfolio: applyCurrentRoomPortfolio,
+  });
 
   const refreshRoomsData = useCallback(async () => {
     if (!currentUser?.id) {
@@ -1388,9 +1202,11 @@ export const TradingProvider = ({ children }) => {
       null;
 
     setActiveRoomId(nextActiveRoomId);
-    setRoomMembers([]);
-    setRoomAccounts([]);
-    setRoomPortfolios({});
+    if (nextActiveRoomId !== activeRoomId) {
+      setRoomMembers([]);
+      setRoomAccounts([]);
+      setRoomPortfolios({});
+    }
 
     return accessibleRooms;
   }, [activeRoomId, currentUser?.id, currentUser?.role, preferencesState?.defaultActiveRoomId, setActiveRoomId]);
@@ -1436,125 +1252,16 @@ export const TradingProvider = ({ children }) => {
       }
 
       setActiveRoomId(roomId);
-
-      if (!roomId) {
+      if (roomId !== activeRoomId || !roomId) {
         setRoomMembers([]);
         setRoomAccounts([]);
         setRoomPortfolios({});
-        return;
       }
 
-      try {
-        const selectedRoom =
-          (currentUser?.id &&
-            (rooms.find((room) => room.id === roomId) ||
-              readCachedAccessibleRooms(currentUser.id).find((room) => room.id === roomId))) ||
-          rooms.find((room) => room.id === roomId) ||
-          null;
-        const canMutateSelectedRoomMembership = Boolean(
-          effectiveRoomMutationUserId &&
-            selectedRoom?.createdBy &&
-            selectedRoom.createdBy === effectiveRoomMutationUserId
-        );
-
-        if (canMutateSelectedRoomMembership) {
-          try {
-            await ensureRoomMemberTradingFields({
-              roomId,
-              userId: effectiveRoomMutationUserId,
-              defaultBalance: Number(selectedRoom?.defaultBalance ?? 0),
-              defaultCurrency: selectedRoom?.defaultCurrency || "USD",
-              createIfMissingRole: "teacher",
-            });
-          } catch (error) {
-            console.warn("selectRoom ensureRoomMemberTradingFields warning", error);
-          }
-        }
-
-        let [nextMembers, nextAccounts] = await Promise.all([
-          fetchRoomMembers(roomId),
-          fetchRoomSimAccounts(roomId),
-        ]);
-        let hydratedAccounts = nextAccounts;
-        try {
-          hydratedAccounts = await seedMissingRoomMemberBalances({
-            roomId,
-            members: nextMembers,
-            accounts: nextAccounts,
-            defaultBalance: Number(selectedRoom?.defaultBalance ?? 0),
-            defaultCurrency: selectedRoom?.defaultCurrency || "USD",
-            canMutate: canMutateSelectedRoomMembership,
-          });
-        } catch (error) {
-          console.warn("selectRoom seedMissingRoomMemberBalances warning", error);
-        }
-        if (
-          canMutateSelectedRoomMembership &&
-          !hydratedAccounts.some((account) => account.userId === effectiveRoomMutationUserId)
-        ) {
-          try {
-            await ensureRoomMemberTradingFields({
-              roomId,
-              userId: effectiveRoomMutationUserId,
-              defaultBalance: Number(selectedRoom?.defaultBalance ?? 0),
-              defaultCurrency: selectedRoom?.defaultCurrency || "USD",
-              createIfMissingRole: "teacher",
-            });
-            [nextMembers, hydratedAccounts] = await Promise.all([
-              fetchRoomMembers(roomId),
-              fetchRoomSimAccounts(roomId),
-            ]);
-          } catch (error) {
-            console.warn("selectRoom rehydrateCurrentAccount warning", error);
-          }
-        }
-        const memberPortfolios = await Promise.all(
-          nextMembers
-            .filter((member) => member.roleInRoom === "student")
-            .map(async (member) => [member.userId, await fetchPortfolio(member.userId, roomId)])
-        );
-        setRoomMembers(nextMembers);
-        setRoomAccounts(hydratedAccounts);
-        setRoomPortfolios(Object.fromEntries(memberPortfolios));
-
-        if (effectiveRoomUserId) {
-          try {
-            const nextPortfolio = await fetchPortfolio(effectiveRoomUserId, roomId);
-            const matchedAccount = hydratedAccounts.find((account) => matchesRoomUserCandidate(account.userId));
-            const currentAccount =
-              matchedAccount ||
-              (currentUser?.role === "student" && hydratedAccounts.length === 1
-                ? hydratedAccounts[0]
-                : null);
-            setCurrentUser((previous) =>
-              previous
-                ? {
-                    ...previous,
-                    balance: currentAccount?.availableBalance ?? previous.balance ?? 0,
-                    positions: nextPortfolio.positions,
-                    transactions: nextPortfolio.transactions,
-                  }
-                : previous
-            );
-          } catch (error) {
-            console.error("selectRoomPortfolio error", error);
-          }
-        }
-      } catch (error) {
-        console.error("selectRoom error", error);
-      }
+      // Data loading is owned by useRoomWorkspaceData when activeRoomId changes.
+      // No account initialization or second roster/portfolio load on navigation.
     },
-    [
-      currentUser?.id,
-      currentUser?.role,
-      effectiveRoomMutationUserId,
-      effectiveRoomUserId,
-      matchesRoomUserCandidate,
-      refreshRoomsData,
-      rooms,
-      seedMissingRoomMemberBalances,
-      setActiveRoomId,
-    ]
+    [activeRoomId, currentUser?.id, refreshRoomsData, rooms, setActiveRoomId]
   );
 
   const adjustStudentBalance = useCallback(
@@ -1836,12 +1543,12 @@ export const TradingProvider = ({ children }) => {
       await refreshRoomsData();
 
       if (payload?.roomId === activeRoomId) {
-        await selectRoom(payload.roomId);
+        await refreshActiveRoomData();
       }
 
       return nextRoom;
     },
-    [activeRoomId, refreshRoomsData, selectRoom]
+    [activeRoomId, refreshRoomsData, refreshActiveRoomData]
   );
 
   const getRoomHistory = useCallback(async () => {
@@ -1861,14 +1568,17 @@ export const TradingProvider = ({ children }) => {
     user: currentUser,
     authenticatedUserId,
     balance: resolvedContextBalance,
-    positions: currentUser?.positions || [],
-    transactions: currentUser?.transactions || [],
+    positions: roomPortfolioStatus === "ready" ? currentUser?.positions || [] : [],
+    transactions: roomPortfolioStatus === "ready" ? currentUser?.transactions || [] : [],
+    roomPortfolioStatus,
     allUsers,
     studentsInClass,
     rooms,
     activeRoom,
     activeRoomId,
     activeRoomAccount,
+    activeRoomAccountStatus,
+    refreshRoomAccount,
     roomMembers,
     roomAccounts,
     roomPortfolios,
@@ -1896,7 +1606,8 @@ export const TradingProvider = ({ children }) => {
     register,
     refreshSecuritySessions,
     revokeDeviceSession,
-    openPosition,
+      openPosition,
+      isSubmittingTrade,
     closePosition,
     getCurrentPrice,
     setSelectedSymbol,

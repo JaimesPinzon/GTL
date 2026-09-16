@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   aggregateDataForTimeframe,
   formatPriceDataForChart,
-  normalizeDataForTimeframe,
   repairMalformedMinuteCandles,
 } from "../utils";
+import { mergeMarketSnapshot } from "@/lib/market-price";
 import { useOhlcHistory } from "./useOhlcHistory";
 
 export function useChartData({
@@ -12,6 +12,8 @@ export function useChartData({
   chartType,
   currentTimeframe,
   preferredTimezone,
+  marketSnapshot,
+  reportChartHistory,
   selectedMarketData,
   selectedSymbol,
 }) {
@@ -28,59 +30,12 @@ export function useChartData({
     timeframe: currentTimeframe,
   });
 
-  const liveSnapshotData = useMemo(
-    () => normalizeDataForTimeframe(selectedMarketData, currentTimeframe, preferredTimezone),
-    [currentTimeframe, preferredTimezone, selectedMarketData]
-  );
+  useEffect(() => {
+    reportChartHistory?.(selectedSymbol, chartHistory);
+  }, [chartHistory, reportChartHistory, selectedSymbol]);
 
-  const rawData = useMemo(() => {
-    if (chartHistory.length === 0) {
-      return [];
-    }
-
-    if (liveSnapshotData.length === 0) {
-      return chartHistory;
-    }
-
-    // Merge the historical OHLC series with the rolling live quote series.
-    // We intentionally merge by timestamp instead of only by the last historical bar,
-    // because live quote timestamps may arrive slightly behind or overlap the latest OHLC bar.
-    const mergedByTime = new Map();
-
-    chartHistory.forEach((candle) => {
-      if (!Number.isFinite(candle?.time)) {
-        return;
-      }
-
-      mergedByTime.set(candle.time, candle);
-    });
-
-    liveSnapshotData.forEach((liveCandle) => {
-      if (!Number.isFinite(liveCandle?.time)) {
-        return;
-      }
-
-      const existingCandle = mergedByTime.get(liveCandle.time);
-
-      if (!existingCandle) {
-        mergedByTime.set(liveCandle.time, liveCandle);
-        return;
-      }
-
-      mergedByTime.set(liveCandle.time, {
-        ...existingCandle,
-        open: existingCandle.open,
-        high: Math.max(existingCandle.high, liveCandle.high),
-        low: Math.min(existingCandle.low, liveCandle.low),
-        close: liveCandle.close,
-        value: liveCandle.close,
-        currency: liveCandle.currency ?? existingCandle.currency,
-        exchange: liveCandle.exchange ?? existingCandle.exchange,
-      });
-    });
-
-    return Array.from(mergedByTime.values()).sort((left, right) => left.time - right.time);
-  }, [chartHistory, liveSnapshotData]);
+  // Keep the selected interval's history intact. Hourly history is not minute data.
+  const rawData = selectedMarketData?.length ? selectedMarketData : chartHistory;
 
   const normalizedData = useMemo(() => {
     if (rawData.length === 0) {
@@ -94,7 +49,10 @@ export function useChartData({
     return repairMalformedMinuteCandles(normalizedData, currentTimeframe);
   }, [currentTimeframe, normalizedData]);
 
-  const renderedData = useMemo(() => repairedData, [repairedData]);
+  const renderedData = useMemo(
+    () => mergeMarketSnapshot(repairedData, marketSnapshot, currentTimeframe, preferredTimezone),
+    [repairedData, marketSnapshot, currentTimeframe, preferredTimezone]
+  );
 
   const formattedSeriesData = useMemo(
     () => formatPriceDataForChart(renderedData, chartType),

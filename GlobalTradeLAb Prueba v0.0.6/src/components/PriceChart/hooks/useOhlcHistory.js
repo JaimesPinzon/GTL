@@ -243,6 +243,7 @@ function markOldestHistoryAsReached({
 
 export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
   const [chartHistory, setChartHistory] = useState([]);
+  const chartHistoryRef = useRef([]);
   const [isLoadingOlderHistory, setIsLoadingOlderHistory] = useState(false);
   const [hasReachedOldestHistory, setHasReachedOldestHistory] = useState(false);
   const historyLimit = getHistoryLimit(timeframe);
@@ -269,6 +270,7 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
 
   useEffect(() => {
     loadedWindowRef.current = null;
+    chartHistoryRef.current = [];
     loadingOlderRef.current = false;
     oldestHistoryReachedRef.current = false;
     oldestLoadedTimeRef.current = null;
@@ -280,6 +282,8 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
   }, [selectedSymbol, timeframe]);
 
   useEffect(() => {
+    chartHistoryRef.current = chartHistory;
+
     if (!Array.isArray(chartHistory) || chartHistory.length === 0) {
       oldestLoadedTimeRef.current = null;
       return;
@@ -429,12 +433,9 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
 
       loadedWindowRef.current = resolveOlderWindowCursor({ olderWindowOldestTime, olderWindow });
 
-      let didAppendOlderCandles = false;
-      setChartHistory((currentHistory) => {
-        const mergedHistory = mergeCandles(currentHistory, olderHistory);
-        didAppendOlderCandles = mergedHistory.length > currentHistory.length;
-        return mergedHistory;
-      });
+      const currentHistory = chartHistoryRef.current;
+      const mergedHistory = mergeCandles(currentHistory, olderHistory);
+      const didAppendOlderCandles = mergedHistory.length > currentHistory.length;
 
       if (!didAppendOlderCandles) {
         markOldestHistoryAsReached({
@@ -444,6 +445,8 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
         return false;
       }
 
+      chartHistoryRef.current = mergedHistory;
+      setChartHistory(mergedHistory);
       setHasReachedOldestHistory(false);
       oldestHistoryReachedRef.current = false;
       return true;

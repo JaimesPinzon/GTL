@@ -72,17 +72,12 @@ const fetchRoomAccountFromBackend = async ({ roomId }) => {
     return null;
   }
 
-  try {
-    const params = new URLSearchParams({ roomId });
-    const payload = await fetchWithAuth(`/api/rooms/account?${params.toString()}`, {
-      method: "GET",
-      credentials: "omit",
-    });
-    return mapBackendRoomAccount(payload?.account || null);
-  } catch (error) {
-    console.warn("fetchRoomAccountFromBackend warning", error);
-    return null;
-  }
+  const params = new URLSearchParams({ roomId });
+  const payload = await fetchWithAuth(`/api/rooms/account?${params.toString()}`, {
+    method: "GET",
+    credentials: "omit",
+  });
+  return mapBackendRoomAccount(payload?.account || null);
 };
 
 const buildHasPositiveBalance = (account) =>
@@ -238,10 +233,18 @@ const pickRowByCandidateUserIds = (rows = [], candidateUserIds = []) => {
 };
 
 export const fetchResolvedUserRoomAccount = async ({ roomId, userId, userIds = [] }) => {
+  // The authenticated endpoint resolves the actual user and shared account.
+  // Direct reads are a fallback, not a prerequisite for a backend session.
+  let backendError;
+  try {
+    return await fetchRoomAccountFromBackend({ roomId });
+  } catch (error) {
+    backendError = error;
+  }
   const candidateUserIds = buildCandidateUserIds(userId, userIds);
   const dbCandidateUserIds = candidateUserIds.filter(isUuidLike);
   if (!roomId || dbCandidateUserIds.length === 0) {
-    return fetchRoomAccountFromBackend({ roomId });
+    throw backendError;
   }
 
   const memberColumns =
@@ -293,12 +296,12 @@ export const fetchResolvedUserRoomAccount = async ({ roomId, userId, userIds = [
     roomGroupMemberError = roomGroupMemberResult?.error ?? null;
   } catch (error) {
     console.warn("fetchResolvedUserRoomAccount query warning", error);
-    return fetchRoomAccountFromBackend({ roomId });
+    throw backendError;
   }
 
   if (roomMemberError) {
     console.warn("fetchResolvedUserRoomAccount room members warning", roomMemberError);
-    return fetchRoomAccountFromBackend({ roomId });
+    throw backendError;
   }
 
   if (roomGroupMemberError) {
@@ -323,7 +326,7 @@ export const fetchResolvedUserRoomAccount = async ({ roomId, userId, userIds = [
     if (individualAccount) {
       return individualAccount;
     }
-    return fetchRoomAccountFromBackend({ roomId });
+    throw backendError;
   }
 
   if (individualAccount && !buildHasPositiveBalance(groupAccount) && buildHasPositiveBalance(individualAccount)) {
@@ -408,7 +411,7 @@ const fetchRoomGroupMemberSnapshot = async ({ account, parsedAccountId }) => {
   return null;
 };
 
-export const subscribeToRoomAccount = ({ account, onChange }) => {
+export const subscribeToRoomAccount = ({ account, onChange, refreshOnSubscribe = true, pollIntervalMs = 5000 }) => {
   if (!account || typeof onChange !== "function") {
     return () => {};
   }
@@ -470,7 +473,7 @@ export const subscribeToRoomAccount = ({ account, onChange }) => {
     }
   };
 
-  void refreshSnapshot();
+  if (refreshOnSubscribe) void refreshSnapshot();
 
   const channel = supabase
     .channel(channelName)
@@ -506,10 +509,10 @@ export const subscribeToRoomAccount = ({ account, onChange }) => {
     });
 
   const pollingIntervalId =
-    typeof window !== "undefined"
+    typeof window !== "undefined" && pollIntervalMs > 0
       ? window.setInterval(() => {
           void refreshSnapshot();
-        }, 5000)
+        }, pollIntervalMs)
       : null;
 
   return () => {

@@ -1,255 +1,95 @@
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-
 import { formatCurrency } from "@/lib/market-data";
+import { submitRoomTrade } from "@/lib/room-trades";
 
-export const usePortfolioManager = ({ currentUser, updateUser, toast, activeRoom, currentBalance }) => {
+export const usePortfolioManager = ({ currentUser, onTradeCommitted, toast, activeRoom, currentBalance }) => {
   const { t } = useTranslation();
-  const isTeacher = currentUser?.role === "teacher";
-  const normalizeBalance = (value) => {
-    const parsedValue = Number(value);
-    return Number.isFinite(parsedValue) ? parsedValue : 0;
+  const pendingRef = useRef(false);
+  const retryRef = useRef(null);
+  const [isSubmittingTrade, setSubmittingTrade] = useState(false);
+  const createRequestId = () => {
+    if (globalThis.crypto?.randomUUID) {
+      return globalThis.crypto.randomUUID();
+    }
+
+    return `00000000-0000-4000-8000-${Date.now().toString(16).padStart(12, "0").slice(-12)}`;
   };
-  const isRoomReadOnlyForStudents = (room) => {
-    if (!room) {
-      return false;
-    }
-
-    const normalizedState = String(room.state || "").trim().toLowerCase();
-    if (["closed", "archived", "inactive", "deleted"].includes(normalizedState)) {
-      return true;
-    }
-
-    const closeDateValue = room.operationCloseDate || room.endDate;
-    if (!closeDateValue) {
-      return false;
-    }
-
-    const closeDate = new Date(closeDateValue);
-    if (!Number.isFinite(closeDate.getTime())) {
-      return false;
-    }
-
-    closeDate.setHours(23, 59, 59, 999);
-    return Date.now() > closeDate.getTime();
+  const failure = (title, description) => {
+    toast({ title: t(title), description: t(description), variant: "destructive" });
+    return false;
   };
-
-  const openPosition = async (symbol, type, amountUSD, entryPrice, justification, attachmentName, options = {}) => {
-    const overrideBalance = normalizeBalance(options?.availableBalance);
-    const contextBalance = normalizeBalance(currentBalance);
-    const effectiveBalance =
-      options?.availableBalance !== undefined && options?.availableBalance !== null
-        ? overrideBalance
-        : contextBalance;
-
-    if (!currentUser) {
-      toast({
-        title: t("trading.toasts.userNotFoundTitle"),
-        description: t("trading.toasts.userNotFoundDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (!isTeacher && !activeRoom?.id) {
-      toast({
-        title: t("trading.toasts.roomRequiredTitle"),
-        description: t("trading.toasts.roomRequiredDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (!isTeacher && isRoomReadOnlyForStudents(activeRoom)) {
-      toast({
-        title: t("trading.toasts.roomClosedForOperationsTitle"),
-        description: t("trading.toasts.roomClosedForOperationsDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (amountUSD <= 0) {
-      toast({
-        title: t("trading.toasts.invalidAmountTitle"),
-        description: t("trading.toasts.invalidAmountDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (effectiveBalance < amountUSD) {
-      toast({
-        title: t("trading.toasts.insufficientBalanceTitle"),
-        description: t(
-          isTeacher
-            ? "trading.toasts.insufficientBalanceTeacher"
-            : "trading.toasts.insufficientBalanceStudent"
-        ),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (entryPrice <= 0 && symbol !== "TEST_ZERO_PRICE") {
-      toast({
-        title: t("trading.toasts.invalidPriceTitle"),
-        description: t("trading.toasts.invalidPriceDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    const newPosition = {
-      id: `pos_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      symbol,
-      type,
-      amount: amountUSD,
-      entryPrice,
-      openDate: new Date().toISOString(),
-      justification,
-      attachmentName: attachmentName || null,
-    };
-
-    const newTransaction = {
-      id: `txn_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      type: `OPEN_${type}`,
-      symbol,
-      amount: amountUSD,
-      price: entryPrice,
-      date: new Date().toISOString(),
-      justification,
-      attachmentName: attachmentName || null,
-    };
-
+  const submit = async (order) => {
+    if (pendingRef.current) return null;
+    pendingRef.current = true;
+    setSubmittingTrade(true);
     try {
-      await updateUser({
-        ...currentUser,
-        positions: [...currentUser.positions, newPosition],
-        transactions: [...currentUser.transactions, newTransaction],
-        balance: effectiveBalance - amountUSD,
-      });
+      const scopedOrder = { ...order, roomId: activeRoom.id };
+      const fingerprint = JSON.stringify({ userId: currentUser.id, ...scopedOrder });
+      // Preserve the key on a timeout/server failure. Retrying is not another purchase.
+      if (retryRef.current?.fingerprint !== fingerprint) {
+        retryRef.current = { fingerprint, requestId: createRequestId() };
+      }
+      const result = await submitRoomTrade({ ...scopedOrder, requestId: retryRef.current.requestId });
+      onTradeCommitted?.(result);
+      retryRef.current = null;
+      return result;
     } catch (error) {
-      console.error("openPosition persistence error", error);
+      if (error?.status >= 400 && error?.status < 500) retryRef.current = null;
+      console.error("room trade persistence error", { status: error?.status, message: error?.message });
       toast({
         title: t("trading.toasts.operationFailedTitle"),
-        description:
-          error instanceof Error && error.message
-            ? error.message
-            : typeof error?.message === "string" && error.message.trim()
-              ? error.message
-              : t("trading.toasts.operationFailedDescription"),
+        description: error?.message || t("trading.toasts.operationFailedDescription"),
         variant: "destructive",
       });
-      return false;
+      return null;
+    } finally {
+      pendingRef.current = false;
+      setSubmittingTrade(false);
     }
-
+  };
+  const canOperate = () => {
+    if (!currentUser) return failure("trading.toasts.userNotFoundTitle", "trading.toasts.userNotFoundDescription");
+    if (!activeRoom?.id) return failure("trading.toasts.roomRequiredTitle", "trading.toasts.roomRequiredDescription");
+    return !pendingRef.current;
+  };
+  const openPosition = async (symbol, type, amountUSD, entryPrice, justification, attachmentName) => {
+    if (!canOperate()) return false;
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0 || Math.round(amountUSD * 100) < 1) {
+      return failure("trading.toasts.invalidAmountTitle", "trading.toasts.invalidAmountDescription");
+    }
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !["BUY", "SELL"].includes(type)) {
+      return failure("trading.toasts.invalidPriceTitle", "trading.toasts.invalidPriceDescription");
+    }
+    if (!justification?.trim()) return failure("trading.form.missingJustificationTitle", "trading.form.missingJustificationDescription");
+    if (currentBalance == null || !Number.isFinite(currentBalance) || currentBalance < amountUSD) {
+      return failure("trading.toasts.insufficientBalanceTitle", currentUser.role === "teacher"
+        ? "trading.toasts.insufficientBalanceTeacher" : "trading.toasts.insufficientBalanceStudent");
+    }
+    const result = await submit({ action: "open", symbol, type, amount: amountUSD, price: entryPrice, justification, attachmentName: attachmentName || null });
+    if (!result) return false;
     toast({
       title: t("trading.toasts.positionOpenedTitle"),
       description: t("trading.toasts.positionOpenedDescription", {
-        side: t(type === "BUY" ? "trading.sides.buy" : "trading.sides.sell"),
-        symbol,
-        amount: formatCurrency(amountUSD, "USD"),
+        side: t(type === "BUY" ? "trading.sides.buy" : "trading.sides.sell"), symbol, amount: formatCurrency(amountUSD, "USD"),
       }),
       variant: "default",
     });
     return true;
   };
-
   const closePosition = async (positionId, closePrice) => {
-    if (!currentUser) {
-      toast({
-        title: t("trading.toasts.userNotFoundTitle"),
-        description: t("trading.toasts.userNotFoundDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (!isTeacher && !activeRoom?.id) {
-      toast({
-        title: t("trading.toasts.roomRequiredTitle"),
-        description: t("trading.toasts.roomRequiredDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (!isTeacher && isRoomReadOnlyForStudents(activeRoom)) {
-      toast({
-        title: t("trading.toasts.roomClosedForOperationsTitle"),
-        description: t("trading.toasts.roomClosedForOperationsDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    const positionToClose = currentUser.positions.find((position) => position.id === positionId);
-    if (!positionToClose) {
-      toast({
-        title: t("trading.toasts.positionNotFoundTitle"),
-        description: t("trading.toasts.positionNotFoundDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (closePrice <= 0 && positionToClose.symbol !== "TEST_ZERO_PRICE") {
-      toast({
-        title: t("trading.toasts.invalidClosePriceTitle"),
-        description: t("trading.toasts.invalidClosePriceDescription"),
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    let profitOrLoss;
-    if (positionToClose.type === "BUY") {
-      profitOrLoss =
-        (closePrice - positionToClose.entryPrice) *
-        (positionToClose.amount / (positionToClose.entryPrice || 1));
-    } else {
-      profitOrLoss =
-        (positionToClose.entryPrice - closePrice) *
-        (positionToClose.amount / (positionToClose.entryPrice || 1));
-    }
-
-    if (positionToClose.entryPrice === 0 && positionToClose.symbol !== "TEST_ZERO_PRICE") {
-      profitOrLoss =
-        positionToClose.type === "BUY"
-          ? positionToClose.amount * (closePrice > 0 ? 1 : -1)
-          : positionToClose.amount * (closePrice > 0 ? -1 : 1);
-    }
-
-    const newTransaction = {
-      id: `txn_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      type: `CLOSE_${positionToClose.type}`,
-      symbol: positionToClose.symbol,
-      amount: positionToClose.amount,
-      entryPrice: positionToClose.entryPrice,
-      closePrice,
-      profitOrLoss,
-      date: new Date().toISOString(),
-      justification: positionToClose.justification,
-      attachmentName: positionToClose.attachmentName,
-    };
-
-    await updateUser({
-      ...currentUser,
-      positions: currentUser.positions.filter((position) => position.id !== positionId),
-      transactions: [...currentUser.transactions, newTransaction],
-      balance: currentBalance + positionToClose.amount + profitOrLoss,
-    });
-
+    if (!canOperate()) return false;
+    const position = currentUser.positions?.find((item) => item.id === positionId);
+    if (!position) return failure("trading.toasts.positionNotFoundTitle", "trading.toasts.positionNotFoundDescription");
+    if (!Number.isFinite(closePrice) || closePrice <= 0) return failure("trading.toasts.invalidClosePriceTitle", "trading.toasts.invalidClosePriceDescription");
+    const result = await submit({ action: "close", positionId, price: closePrice });
+    if (!result) return false;
     toast({
       title: t("trading.toasts.positionClosedTitle"),
-      description: t("trading.toasts.positionClosedDescription", {
-        symbol: positionToClose.symbol,
-        profitOrLoss: formatCurrency(profitOrLoss, "USD"),
-      }),
-      variant: profitOrLoss >= 0 ? "default" : "destructive",
+      description: t("trading.toasts.positionClosedDescription", { symbol: position.symbol, profitOrLoss: formatCurrency(result.profitOrLoss, "USD") }),
+      variant: result.profitOrLoss >= 0 ? "default" : "destructive",
     });
     return true;
   };
-
-  return { openPosition, closePosition };
+  return { openPosition, closePosition, isSubmittingTrade };
 };

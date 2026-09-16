@@ -3,16 +3,43 @@ import { NextResponse } from "next/server";
 import {
     aggregateCandlesByCount,
     buildCandlesFromStoredRows,
+    buildCandlesFromTimeSeriesValues,
+    fetchAndStoreYahooCandles,
+    mergeStoredCandlesWithLiveCandles,
     type MarketCandleRow,
 } from "@/app/utils/market/ohlc";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
-import { getConfigForTimeframe } from "@/app/utils/market/timeframes";
+import { getTwelveDataTimeSeries } from "@/app/utils/twelvedata/server";
+import { getConfigForTimeframe, getProviderFreshnessMs } from "@/app/utils/market/timeframes";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
+
+function getTwelveDataInterval(providerInterval: string) {
+    switch (providerInterval) {
+        case "1m":
+            return "1min";
+        case "2m":
+            return "2min";
+        case "5m":
+            return "5min";
+        case "15m":
+            return "15min";
+        case "30m":
+            return "30min";
+        case "60m":
+            return "1h";
+        default:
+            return null;
+    }
+}
+
+function shouldUseLiveTimeSeries(providerInterval: string) {
+    return ["1m", "2m", "5m", "15m", "30m", "60m"].includes(providerInterval);
+}
 
 function buildSymbolCandidates(rawSymbol: string) {
     const normalizedSymbol = rawSymbol.trim().toUpperCase();
@@ -71,10 +98,51 @@ export async function GET(request: Request) {
             console.error("stored OHLC read unavailable; using live providers", error);
         }
 
-        const rawCandles = buildCandlesFromStoredRows(
-            (error ? [] : data ?? []) as MarketCandleRow[]
-        );
-        const candles = aggregateCandlesByCount(rawCandles, config.aggregateSize).slice(-limit);
+        let rawCandles = buildCandlesFromStoredRows((error ? [] : data ?? []) as MarketCandleRow[]);
+        const latestStoredCandle = (data ?? [])[0] as MarketCandleRow | undefined;
+        const hasFreshStoredHistory =
+            latestStoredCandle &&
+            Date.now() - new Date(latestStoredCandle.candle_time).getTime() <
+                getProviderFreshnessMs(config.providerInterval);
+
+        if (!hasFreshStoredHistory) {
+            try {
+                rawCandles = await fetchAndStoreYahooCandles(
+                    symbol,
+                    config.providerInterval,
+                    config.range
+                );
+            } catch (refreshError) {
+                console.error("fetchAndStoreYahooCandles refresh error", refreshError);
+            }
+        }
+
+        if (shouldUseLiveTimeSeries(config.providerInterval)) {
+            try {
+                const liveSeries = await getTwelveDataTimeSeries(
+                    symbol,
+                    getTwelveDataInterval(config.providerInterval) ?? "1min",
+                    Math.min(200, Math.max(60, limit * config.aggregateSize))
+                );
+
+                const liveCandles = buildCandlesFromTimeSeriesValues(
+                    liveSeries.values ?? [],
+                    liveSeries.meta?.currency ?? rawCandles[rawCandles.length - 1]?.currency ?? "USD",
+                    liveSeries.meta?.exchange ?? rawCandles[rawCandles.length - 1]?.exchange ?? null
+                );
+
+                rawCandles = mergeStoredCandlesWithLiveCandles(rawCandles, liveCandles);
+            } catch (liveSeriesError) {
+                console.error("getTwelveDataTimeSeries error", liveSeriesError);
+            }
+        }
+
+        let candles = aggregateCandlesByCount(rawCandles, config.aggregateSize).slice(-limit);
+
+        if (candles.length === 0) {
+            const fetched = await fetchAndStoreYahooCandles(symbol, config.providerInterval, config.range);
+            candles = aggregateCandlesByCount(fetched, config.aggregateSize).slice(-limit);
+        }
 
         return NextResponse.json(
             {

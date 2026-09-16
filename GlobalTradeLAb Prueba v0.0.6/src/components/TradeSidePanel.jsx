@@ -16,7 +16,7 @@ const TradeSidePanel = ({ open, onClose }) => {
   const liveSelectedPrice = Number(getCurrentPrice(selectedSymbol));
   const hasLivePrice = Number.isFinite(liveSelectedPrice) && liveSelectedPrice > 0;
   const selectedMarketCurrency = selectedMarket?.currency || "USD";
-  const selectedMarketChange = Number(selectedMarket?.change || 0);
+  const selectedMarketChange = selectedMarket?.change;
 
   return (
     <AnimatePresence>
@@ -75,7 +75,7 @@ const TradeSidePanel = ({ open, onClose }) => {
                         : t("trading.tradePanel.unavailableQuote")
                       : "--"}
                   </span>
-                  {selectedMarket ? (
+                  {Number.isFinite(selectedMarketChange) ? (
                     <span
                       className={`font-medium ${
                         selectedMarketChange >= 0 ? "text-green-500" : "text-red-500"

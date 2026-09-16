@@ -332,6 +332,21 @@ export const normalizeTimestampToUnixSeconds = (timeValue) => {
   return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : null;
 };
 
+const MAX_REASONABLE_CANDLE_RANGE_RATIO = 0.02;
+
+export const isPlausibleOhlcCandle = ({ time, open, high, low, close }) => {
+  if (![time, open, high, low, close].every(Number.isFinite) || open <= 0 || high <= 0 || low <= 0 || close <= 0) {
+    return false;
+  }
+
+  if (high < low || high < open || high < close || low > open || low > close) {
+    return false;
+  }
+
+  const referencePrice = Math.max(Math.abs(open), Math.abs(close), 1);
+  return (high - low) / referencePrice <= MAX_REASONABLE_CANDLE_RANGE_RATIO;
+};
+
 const normalizeTimeToSeconds = (timeValue) =>
   normalizeTimestampToUnixSeconds(timeValue);
 
@@ -452,7 +467,7 @@ export const normalizeDataForTimeframe = (data, timeframe, timezone = null) => {
       const low = Number(point?.low);
       const close = Number(point?.close);
 
-      if (![open, high, low, close].every(Number.isFinite)) {
+      if (!isPlausibleOhlcCandle({ time, open, high, low, close })) {
         return null;
       }
 

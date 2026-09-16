@@ -8,6 +8,7 @@ const TradeFormLogic = ({
   toast,
   userCurrency,
   availableBalance,
+  isSubmittingTrade = false,
 }) => {
   const { t } = useTranslation();
   const getOperationErrorMessage = (error) => {
@@ -74,6 +75,9 @@ const TradeFormLogic = ({
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (isSubmittingTrade) {
+      return;
+    }
 
     const numericCurrentPrice = Number(currentPrice);
     if (!Number.isFinite(numericCurrentPrice) || numericCurrentPrice <= 0) {
@@ -126,10 +130,7 @@ const TradeFormLogic = ({
         investmentAmountUSD,
         numericCurrentPrice,
         justification,
-        attachmentName,
-        {
-          availableBalance,
-        }
+        attachmentName
       );
 
       if (success) {

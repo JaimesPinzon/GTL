@@ -184,3 +184,31 @@
 * Cambio: Se centralizo en backend la salida de sala para actualizar `room_members` y `room_group_members` a estado `removed` usando `supabaseAdmin`.
 * Correccion: Se agrego validacion para impedir que el propietario de la sala use el flujo de salida de estudiante en su propia sala.
 * Correccion: Se valido compilacion del backend con `npm run build` incluyendo la nueva ruta `/api/rooms/leave`.
+
+20260915
+
+* Cambio: Se reforzo la proteccion del cron y backfill de mercado con control de reintentos por ventana temporal, evitando ejecuciones repetidas en intervalos muy cortos cuando la base de datos ya estaba bajo carga.
+* Cambio: Se ajusto la logica de refresco para priorizar una sola ejecucion activa por simbolo e intervalo, reemplazando la cascada de trabajos concurrentes que generaba 521/503 y saturaba `candles` y `last_candle_market`.
+* Correccion: Se elimino el patron de disparo repetido sin bloqueo que dejaba el backend consultando y escribiendo varias veces el mismo mercado en segundos.
+* Optimizacion: Se redujo la frecuencia efectiva de refresh y backfill para que el sistema espere periodos de cool-down antes de volver a intentar, con reintentos solo despues de ventanas definidas.
+* Cambio: Se estabilizo el flujo de `last_candle_market` para que la cotizacion viva y la historia OHLC se alineen por timestamp en lugar de sobrescribir la ultima vela historica con un valor no consistente.
+* Correccion: Se corrigio la fusion de datos en tiempo real para que la escritura viva cree una vela nueva con marca temporal actual, en lugar de mutar la ultima vela anterior.
+* Cambio: Se normalizo la carga de `public.candles` para descartar candlesticks malformados, con fechas fuera de secuencia, rangos exagerados o valores nulos que deformaban el grafico y el precio actual.
+* Mejora: Se reforzo la validacion de continuidad y la limpieza de registros anomalos antes de renderizar la serie OHLC.
+* Cambio: Se ajusto la politica de sincronizacion entre quote, history y OHLC para que el backend entregue una vista coherente del mercado aun cuando hay retrasos o datos no homogeneos.
+* Cambio: Se preparo la base SQL para mantener el backfill y el refresh bajo control de lock y cooldown, dejando el sistema listo para operar sin colapsar la base cuando haya picos de carga o fallas de proveedor.
+* Eliminacion: Se desecho la dependencia de ejecuciones cron no controladas que repetian la misma tarea sin validacion de estado previo.
+
+20260915
+
+* Cambio: Se reemplazo la lectura directa de proveedores externos en las rutas de mercado por consultas priorizadas a `public.candles` y snapshots almacenados, evitando que cada recarga repitiera llamadas a TwelveData o Yahoo.
+* Cambio: Se ajusto `src/app/api/market/ohlc/route.ts` para responder solo desde la base de datos canonical y no disparar backfill ni refresh al servir datos del chart.
+* Cambio: Se actualizo `src/app/api/market/quotes/route.ts`, `src/app/api/market/quote/route.ts` y `src/app/api/market/last-candle-market/route.ts` para devolver cotizaciones y ultimas velas sin inducir refresco automatico en la misma peticion de lectura.
+* Correccion: Se elimino el warmup de inicializacion en `src/instrumentation.ts`, evitando ejecuciones de mercado durante el arranque del backend sin orden ni control.
+* Mejora: Se reforzo la validacion y limpieza de la serie en `src/app/utils/yahoo/candles-storage.ts`, normalizando simbolos como `SOLUSD` a `SOL/USD` y descartando registros inconsistentes antes de persistir.
+* Cambio: Se ajusto el flujo de backfill base para detener ejecuciones repetidas cuando la tabla de almacenamiento quedaba en estado no disponible, evitando loops de carga y reintentos infinitos.
+* Cambio: Se dejo la ruta `GET/POST /api/market/backfill/base-candles` protegida con autorizacion por `CRON_SECRET` y control de ventana de reintento para evitar disparos duplicados del scheduler.
+* Optimizacion: Se redujo la frecuencia de refresco y backfill, dejando cooldowns y bloqueo por simbolo para evitar saturacion de `candles`, `quote_history` y `last_candle_market`.
+* Cambio: Se consolidó la definición SQL de `public.candles` con indice específico sobre `(instrument_id, timeframe, open_time desc)` para mejorar la lectura de series y estabilizar consultas por intervalo.
+* Agregacion: Se dejo la configuración del cron en `private.market_cron_config` para evitar depender de `ALTER DATABASE` y mantener la URL del backend y el secreto en una tabla operativa del proyecto.
+* Eliminacion: Se desecho el esquema de refresco no controlado y la dependencia de tareas cron no validadas, dejando el sistema orientado a sincronizacion programada y segura.

@@ -220,6 +220,7 @@ const en = {
       closePositionNotice: "You can close your positions from the Positions section.",
       justificationRequiredNotice: "A justification is required for every trade.",
       submit: "{{side}} {{symbol}}",
+      submitting: "Submitting...",
       fileTooLargeTitle: "File too large",
       fileTooLargeDescription: "The maximum allowed file size is 2 MB.",
       invalidFileTypeTitle: "Invalid file format",

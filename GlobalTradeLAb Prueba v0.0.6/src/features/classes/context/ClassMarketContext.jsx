@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { getMarketHistoryFromBackend, getQuotesFromBackend } from "@/lib/backend-market";
+import { mergeMarketSnapshot, resolveMarketSnapshot } from "@/lib/market-price";
 import { CLASS_CONTEXT_PATHS } from "@/lib/routes";
 import { useClassContext } from "@/features/classes/context/ClassContext";
 
@@ -90,10 +91,23 @@ export const ClassMarketContextProvider = ({ children }) => {
           return [];
         });
 
+        const quoteBySymbol = Object.fromEntries(
+          latestQuotes
+            .filter((entry) => entry.ok && entry.data)
+            .map((entry) => [entry.localSymbol, entry.data])
+        );
+
         const nextMarketData = Object.fromEntries(
           historicalResults.map((entry) => [
             entry.localSymbol,
-            Array.isArray(entry.data) ? entry.data : [],
+            (() => {
+              const candles = Array.isArray(entry.data) ? entry.data : [];
+              const snapshot = resolveMarketSnapshot({
+                quote: quoteBySymbol[entry.localSymbol],
+                candles,
+              });
+              return mergeMarketSnapshot(candles, snapshot, "1m");
+            })(),
           ])
         );
 
@@ -175,30 +189,9 @@ export const ClassMarketContextProvider = ({ children }) => {
             return;
           }
 
-          const numericPrice = Number.parseFloat(quote.close);
-
-          if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
-            return;
-          }
-
-          if (!nextData[symbolId] || nextData[symbolId].length === 0) {
-            return;
-          }
-
-          const lastCandleIndex = nextData[symbolId].length - 1;
-          nextData[symbolId] = nextData[symbolId].map((candle, index) => {
-            if (index !== lastCandleIndex) {
-              return candle;
-            }
-
-            return {
-              ...candle,
-              high: Math.max(candle.high, numericPrice),
-              low: Math.min(candle.low, numericPrice),
-              close: numericPrice,
-              value: numericPrice,
-            };
-          });
+          const candles = nextData[symbolId] || [];
+          const snapshot = resolveMarketSnapshot({ quote, candles });
+          nextData[symbolId] = mergeMarketSnapshot(candles, snapshot, "1m");
         });
 
         return nextData;
@@ -206,50 +199,31 @@ export const ClassMarketContextProvider = ({ children }) => {
     };
 
     void refreshQuotes();
-    const interval = window.setInterval(refreshQuotes, 108000);
+    const interval = window.setInterval(refreshQuotes, 30000);
 
     return () => window.clearInterval(interval);
   }, [shouldLoadMarket]);
 
   const getCurrentPrice = (symbolId) => {
-    const quotePrice = Number.parseFloat(
-      quoteData[symbolId]?.close ?? quoteData[symbolId]?.price
-    );
+    const snapshot = resolveMarketSnapshot({
+      quote: quoteData[symbolId],
+      candles: marketData[symbolId] || [],
+    });
 
-    if (Number.isFinite(quotePrice) && quotePrice > 0) {
-      return quotePrice;
-    }
-
-    if (!marketData[symbolId] || marketData[symbolId].length === 0) {
+    if (!snapshot) {
       return 0;
     }
 
-    return marketData[symbolId].slice(-1)[0].close;
+    return snapshot.price;
   };
 
   const calculateChange = (symbolId) => {
-    const quote = quoteData[symbolId];
-    const quotePrice = Number.parseFloat(quote?.close ?? quote?.price);
-    const quoteChange = Number.parseFloat(quote?.percent_change);
+    const snapshot = resolveMarketSnapshot({
+      quote: quoteData[symbolId],
+      candles: marketData[symbolId] || [],
+    });
 
-    if (Number.isFinite(quotePrice) && Number.isFinite(quoteChange)) {
-      return quoteChange;
-    }
-
-    if (!marketData[symbolId] || marketData[symbolId].length < 2) {
-      return 0;
-    }
-
-    const currentCandle = marketData[symbolId].slice(-1)[0];
-    const previousCandle = marketData[symbolId].slice(-2)[0];
-
-    const referencePrice = currentCandle.referencePrice24h ?? previousCandle?.close;
-
-    if (!currentCandle || !Number.isFinite(referencePrice) || referencePrice === 0) {
-      return 0;
-    }
-
-    return ((currentCandle.close - referencePrice) / referencePrice) * 100;
+    return Number.isFinite(snapshot?.change) ? snapshot.change : 0;
   };
 
   const symbols = useMemo(

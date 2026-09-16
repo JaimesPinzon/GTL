@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { BellPlus, Minus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useTradingWorkspace } from "@/features/classes/hooks/useTradingWorkspace";
 import ChartHeader from "./PriceChart/ChartHeader";
@@ -32,13 +32,17 @@ const PriceChart = ({
   const seriesRef = useRef(null);
   const renderedDataRef = useRef([]);
   const syncMacdVisibilityRef = useRef(() => {});
+  const [historyStatusDismissed, setHistoryStatusDismissed] = useState(false);
+  const [oldestCandleX, setOldestCandleX] = useState(null);
 
   const {
     selectedSymbol,
     initialSymbols,
+    marketData = {},
     preferencesState,
     user,
   } = useTradingWorkspace();
+  const selectedMarketData = marketData[selectedSymbol] ?? [];
   const currentSymbolInfo = initialSymbols.find((symbol) => symbol.id === selectedSymbol);
   const currency = currentSymbolInfo ? currentSymbolInfo.currency : "USD";
   const preferredTimezone = preferencesState?.timezone || user?.timezone || null;
@@ -61,9 +65,29 @@ const PriceChart = ({
     chartType,
     currentTimeframe,
     preferredTimezone,
-    selectedMarketData: [],
+    selectedMarketData,
     selectedSymbol,
   });
+
+  useEffect(() => {
+    setHistoryStatusDismissed(false);
+  }, [currentTimeframe, hasReachedOldestHistory, isLoadingOlderHistory, selectedSymbol]);
+
+  useEffect(() => {
+    let frameId = null;
+
+    const updateOldestCandlePosition = () => {
+      const oldestTime = renderedData[0]?.time;
+      const nextX = Number.isFinite(oldestTime)
+        ? chartRef.current?.timeScale().timeToCoordinate(oldestTime)
+        : null;
+
+      setOldestCandleX(Number.isFinite(nextX) ? nextX : null);
+    };
+
+    frameId = window.requestAnimationFrame(updateOldestCandlePosition);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [currentTimeframe, renderedData, selectedSymbol]);
 
   const { overlayStudies, paneStudies } = useIndicatorsData({
     chartAppearance,
@@ -110,6 +134,7 @@ const PriceChart = ({
     onChartClick: drawings.handleChartClick,
     onCrosshairMove: overlay.handleCrosshairMove,
     onRegisterActions,
+    oldestRenderedTime: renderedData[0]?.time ?? null,
     processedData,
     renderedDataRef,
     seriesRef,
@@ -199,21 +224,51 @@ const PriceChart = ({
           style={{ height: "100%" }}
         />
 
-        {progressiveHistoryEnabled && isLoadingOlderHistory ? (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border/80 bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-md">
+        {progressiveHistoryEnabled && isLoadingOlderHistory && !historyStatusDismissed ? (
+          <div className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border/80 bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-md">
             {t("priceChart.historyStatus.loadingOlder")}
+            <button
+              type="button"
+              onClick={() => setHistoryStatusDismissed(true)}
+              className="rounded-full p-0.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              aria-label={t("common.close")}
+              title={t("common.close")}
+            >
+              <X className="h-3 w-3" />
+            </button>
           </div>
         ) : null}
 
-        {progressiveHistoryEnabled && !isLoadingOlderHistory && hasReachedOldestHistory ? (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border/80 bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-md">
+        {progressiveHistoryEnabled && !isLoadingOlderHistory && hasReachedOldestHistory && !historyStatusDismissed ? (
+          <div className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border/80 bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-md">
             {t("priceChart.historyStatus.noOlderData")}
+            <button
+              type="button"
+              onClick={() => setHistoryStatusDismissed(true)}
+              className="rounded-full p-0.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              aria-label={t("common.close")}
+              title={t("common.close")}
+            >
+              <X className="h-3 w-3" />
+            </button>
           </div>
         ) : null}
 
-        {progressiveHistoryEnabled && !isLoadingOlderHistory && hasReachedOldestHistory ? (
-          <div className="pointer-events-none absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-r-md border border-l-0 border-border/80 bg-background/90 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-md">
+        {progressiveHistoryEnabled && !isLoadingOlderHistory && hasReachedOldestHistory && !historyStatusDismissed ? (
+          <div
+            className="pointer-events-auto absolute top-1/2 z-20 flex -translate-y-1/2 items-center gap-1 rounded-r-md border border-l-0 border-border/80 bg-background/90 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-md"
+            style={{ left: Math.max(0, oldestCandleX ?? 0) }}
+          >
             {t("priceChart.historyStatus.noOlderData")}
+            <button
+              type="button"
+              onClick={() => setHistoryStatusDismissed(true)}
+              className="rounded-full p-0.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              aria-label={t("common.close")}
+              title={t("common.close")}
+            >
+              <X className="h-3 w-3" />
+            </button>
           </div>
         ) : null}
 

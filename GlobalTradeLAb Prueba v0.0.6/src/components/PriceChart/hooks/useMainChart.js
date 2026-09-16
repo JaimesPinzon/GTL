@@ -19,6 +19,7 @@ export function useMainChart({
   onCrosshairMove,
   onLoadOlderHistory,
   onRegisterActions,
+  oldestRenderedTime,
   overlayStudies,
   progressiveHistoryEnabled,
   processedData,
@@ -37,6 +38,8 @@ export function useMainChart({
   const resizeFrameRef = useRef(null);
   const userInteractionArmedRef = useRef(false);
   const lastVisibleFromRef = useRef(null);
+  const previousRenderedLengthRef = useRef(0);
+  const previousOldestRenderedTimeRef = useRef(null);
 
   const createSeriesForPlot = useCallback((plot) => {
     if (!chartRef.current) {
@@ -54,6 +57,8 @@ export function useMainChart({
     hasAutoFocusedRef.current = false;
     userInteractionArmedRef.current = false;
     lastVisibleFromRef.current = null;
+    previousRenderedLengthRef.current = 0;
+    previousOldestRenderedTimeRef.current = null;
   }, [chartType, currentTimeframe, selectedSymbol]);
 
   useEffect(() => {
@@ -351,8 +356,30 @@ export function useMainChart({
       seriesRef.current.applyOptions(getSeriesOptions(chartType, chartAppearance));
     }
 
+    const visibleRangeBeforeUpdate = chartRef.current.timeScale().getVisibleLogicalRange();
+    const previousRenderedLength = previousRenderedLengthRef.current;
+    const previousOldestRenderedTime = previousOldestRenderedTimeRef.current;
+
     renderedDataRef.current = processedData;
     seriesRef.current.setData(formattedSeriesData);
+
+    if (
+      visibleRangeBeforeUpdate &&
+      previousRenderedLength > 0 &&
+      formattedSeriesData.length > previousRenderedLength &&
+      Number.isFinite(previousOldestRenderedTime) &&
+      Number.isFinite(oldestRenderedTime) &&
+      oldestRenderedTime < previousOldestRenderedTime
+    ) {
+      const prependedBars = formattedSeriesData.length - previousRenderedLength;
+      chartRef.current.timeScale().setVisibleLogicalRange({
+        from: visibleRangeBeforeUpdate.from + prependedBars,
+        to: visibleRangeBeforeUpdate.to + prependedBars,
+      });
+    }
+
+    previousRenderedLengthRef.current = formattedSeriesData.length;
+    previousOldestRenderedTimeRef.current = oldestRenderedTime ?? null;
 
     const lastPrice =
       formattedSeriesData[formattedSeriesData.length - 1]?.close ??
@@ -369,7 +396,7 @@ export function useMainChart({
       );
       hasAutoFocusedRef.current = true;
     }
-  }, [chartAppearance, chartLocale, chartTimezone, chartType, currency, currentTimeframe, formattedSeriesData, isFullScreen, processedData, renderedDataRef, showMACD]);
+  }, [chartAppearance, chartLocale, chartTimezone, chartType, currency, currentTimeframe, formattedSeriesData, isFullScreen, oldestRenderedTime, processedData, renderedDataRef, showMACD]);
 
   useEffect(() => {
     if (!chartRef.current) {

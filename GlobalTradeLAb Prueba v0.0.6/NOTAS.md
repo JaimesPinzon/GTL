@@ -258,6 +258,34 @@
 * Agregacion: Se anadio eliminar sala dentro de editar sala con confirmacion explicita y estilos de advertencia en rojo.
 * Cambio: La eliminacion de sala se maneja como archivado operativo (`archived`) para retirarla del flujo activo.
 * Correccion: Se removieron textos extra de advertencia en el modal de eliminacion, conservando solo el titulo y la confirmacion puntual.
+
+20260915
+
+* Cambio: Se reemplazo la carga de mercado en el frontend para que el chart y los snapshots lean del backend unificado y no disparean consultas repetidas a proveedores externos al recargar la vista.
+* Cambio: Se ajusto `ClassMarketContext.jsx` para desacoplar el polling del flujo de render, dejando la recarga periodica en 108000 ms y evitando el consumo constante del proveedor al cambiar estado de la interfaz.
+* Correccion: Se elimino el arranque con refresco automatico en la inicializacion del frontend, evitando que la app vuelva a consultar mercado durante bootstrap cuando no hay una accion real del usuario.
+* Mejora: Se reforzo la degradacion visual de la UI para mantener la app operativa mientras el backend tarda en devolver OHLC, quotes o snapshots, reduciendo pantallas en blanco y estados rotos.
+* Cambio: Se unifico el consumo de rutas del backend en el puente `src/lib/backend-market.js`, dejando accesos centralizados a `ohlc`, `quotes`, `quote`, `history` y `last-candle-market`.
+* Optimizacion: Se redujo la carga redundante en el dashboard y en la vista de sala, evitando consultas dobles por cambio de activo, re-render y recarga de contexto.
+* Correccion: Se ajusto la resolucion de `BACKEND_URL` para priorizar rutas relativas y evitar bloqueos por `ERR_CONNECTION_REFUSED` y errores de red intermitentes durante el arranque local.
+* Cambio: Se actualizo la configuracion del proxy de desarrollo para apuntar a `127.0.0.1`, estabilizando las llamadas a `/api/auth/*` y `/api/market/*` sin depender de endpoints de pruebas o rutas difusas.
+* Mejora: Se reforzo la recuperacion de la interfaz ante datos faltantes, dejando el dashboard y los paneles listos para hidratarse al llegar la respuesta real del backend sin romper la experiencia del usuario.
+* Eliminacion: Se desecho la dependencia del frontend hacia rutas legacy de velas por timeframe, dejando el consumo alineado con el modelo `public.candles` del backend unificado.
+
+20260915
+
+* Cambio: Se reemplazo la logica de carga inicial y de merge de series para que el grafico no reescriba datos antiguos con respuestas stale de requests previos.
+* Correccion: Se corrigio el guardado de requests por simbolo, temporalidad y orden para ignorar respuestas fuera de tiempo y evitar que la serie actual quede sobrescrita por historicos viejos.
+* Mejora: Se optimizo la carga incremental de velas para mantener la continuidad historica con validacion de `oldestCandleX` y fin de historial sin duplicados ni saltos artificiales.
+* Cambio: Se ajusto el refresco live del mercado para ejecutar una actualizacion inmediata al recibir respuesta de quote o history y luego seguir con polling de 30 segundos, evitando que la interfaz quede con datos estancados.
+* Correccion: Se reparo la fusion entre OHLC historico y quote en vivo para agregar una vela viva con el timestamp actual y conservar la serie consistente con el ultimo precio disponible.
+* Cambio: Se reemplazo la vista de precio actual por una lectura basada en el quote del mercado y el contexto operativo, con prioridad a la informacion actual del usuario y la sala activa.
+* Mejora: Se mejoro el calculo del balance visible para que use inmediatamente el valor del contexto de sala, con reconciliacion asincrona sin esperar un ciclo completo de actualizacion.
+* Correccion: Se corrigio la inconsistencia entre el ultimo candle del grafico y el precio mostrado en el panel de operacion, dejando ambas fuentes alineadas con el mismo snapshot de mercado.
+* Cambio: Se implemento filtrado y saneamiento de velas invalidas para descartar ejecuciones con rangos anomalos, marcas temporales fuera de orden y valores de alta/baja imposibles antes del render.
+* Optimizacion: Se redujo la tasa de recarga y el coste de render para limitar recreaciones innecesarias del chart y evitar cuadros vacios o datos mezclados al cambiar de activo o temporalidad.
+* Eliminacion: Se desecho el comportamiento que mezclaba historial de distintos simbolos o respuestas viejas dentro de la misma serie del grafico.
+* Mejora: Se reforzo la recuperacion visual del dashboard para mantener un estado operativo tras la carga de datos y permitir que la interfaz vuelva a sincronizarse cuando el backend entrega informacion nueva.
 * Cambio: En creacion de sala, los mercados habilitados quedaron desmarcados por defecto y se exige minimo un mercado para guardar.
 * Correccion: Se reforzaron validaciones de fecha para impedir cierres menores a la fecha de inicio.
 * Agregacion: Se habilito fecha de cierre indefinida en editar sala, permitiendo guardar `operationCloseDate` en `null`.

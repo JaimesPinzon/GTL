@@ -30,6 +30,12 @@ const TradeFormUI = ({
   handleSubmit,
   totalCostUSD,
   userBalance,
+  totalBalance = userBalance,
+  balanceStatus = "ready",
+  onRetryBalance,
+  portfolioStatus = "ready",
+  onRetryPortfolio,
+  isSubmitting = false,
   isStock,
 }) => {
   const { t } = useTranslation();
@@ -71,6 +77,7 @@ const TradeFormUI = ({
               placeholder={t("trading.form.amountPlaceholder", { currency: userCurrency })}
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
+              disabled={isSubmitting}
               min="0.01"
               step="any"
             />
@@ -84,6 +91,7 @@ const TradeFormUI = ({
               placeholder={t("trading.form.quantityPlaceholder")}
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
+              disabled={isSubmitting}
               min="0.000001"
               step="any"
             />
@@ -103,6 +111,7 @@ const TradeFormUI = ({
             placeholder={t("common.labels.justification")}
             value={justification}
             onChange={(event) => setJustification(event.target.value)}
+            disabled={isSubmitting}
             rows={3}
           />
         </div>
@@ -116,6 +125,7 @@ const TradeFormUI = ({
             type="file"
             accept="image/png, image/jpeg, image/jpg"
             onChange={handleFileChange}
+            disabled={isSubmitting}
             className="text-xs file:text-foreground"
           />
           {attachmentName ? (
@@ -126,11 +136,33 @@ const TradeFormUI = ({
         </div>
 
         <div className="space-y-1">
-          <Label>{t("common.labels.balance")}</Label>
-          <p className="text-sm font-medium">{formatCurrency(userBalance, userCurrency)}</p>
+          <Label>{t("trading.form.totalBalanceLabel")}</Label>
+          <p className="text-sm font-medium" aria-live="polite">
+            {balanceStatus === "ready"
+              ? formatCurrency(totalBalance, userCurrency)
+              : t(balanceStatus === "loading" ? "common.states.loading" : "common.states.unavailable")}
+          </p>
+          {balanceStatus === "ready" && totalBalance !== userBalance ? (
+            <p className="text-xs text-muted-foreground">
+              {t("common.labels.balance")}: {formatCurrency(userBalance, userCurrency)}
+            </p>
+          ) : null}
+          {balanceStatus !== "ready" && balanceStatus !== "loading" && onRetryBalance ? (
+            <Button type="button" variant="outline" size="sm" onClick={onRetryBalance}>
+              {t("common.actions.retry")}
+            </Button>
+          ) : null}
         </div>
 
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          {portfolioStatus === "error" ? (
+            <div className="mb-2 text-sm text-muted-foreground" role="alert">
+              <p>{t("trading.form.portfolioLoadError")}</p>
+              <Button type="button" variant="outline" size="sm" onClick={onRetryPortfolio}>
+                {t("common.actions.retry")}
+              </Button>
+            </div>
+          ) : null}
           <Button
             type="submit"
             className={`w-full ${
@@ -139,17 +171,23 @@ const TradeFormUI = ({
                 : "bg-red-500 text-white hover:bg-red-500/90"
             }`}
             disabled={
+              balanceStatus !== "ready" ||
+              portfolioStatus !== "ready" ||
+              !Number.isFinite(currentPrice) || currentPrice <= 0 ||
               !userBalance ||
               userBalance <= 0 ||
               totalCostUSD > userBalance ||
               !justification.trim() ||
-              totalCostUSD <= 0
+              totalCostUSD <= 0 ||
+              isSubmitting
             }
           >
-            {t("trading.form.submit", {
-              side: t(type === "BUY" ? "trading.sides.buy" : "trading.sides.sell"),
-              symbol: selectedSymbol,
-            })}
+            {isSubmitting
+              ? t("trading.form.submitting")
+              : t("trading.form.submit", {
+                  side: t(type === "BUY" ? "trading.sides.buy" : "trading.sides.sell"),
+                  symbol: selectedSymbol,
+                })}
           </Button>
         </motion.div>
       </div>
