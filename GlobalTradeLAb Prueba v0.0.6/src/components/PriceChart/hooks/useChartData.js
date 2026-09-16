@@ -34,8 +34,13 @@ export function useChartData({
     reportChartHistory?.(selectedSymbol, chartHistory);
   }, [chartHistory, reportChartHistory, selectedSymbol]);
 
-  // Keep the selected interval's history intact. Hourly history is not minute data.
-  const rawData = selectedMarketData?.length ? selectedMarketData : chartHistory;
+  // The chart owns the OHLC history. Class-level market data may be a quote-only
+  // snapshot, so use it only as a fallback when the chart has not loaded history.
+  const rawData = chartHistory.length > 1
+    ? chartHistory
+    : selectedMarketData?.length > 1
+      ? selectedMarketData
+      : chartHistory;
 
   const normalizedData = useMemo(() => {
     if (rawData.length === 0) {

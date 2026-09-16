@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from "@/modules/auth";
 
 const defaultAllowedOrigins = [
   "https://gtl1-f32d5.web.app",
+  "https://globaltradelab.site",
   "http://localhost:5173",
   "http://localhost:3000",
 ];
@@ -16,13 +17,19 @@ const readAllowedOrigins = () => {
     .split(",")
     .map((entry) => normalizeOrigin(entry))
     .filter(Boolean);
+  const authOrigins = String(process.env.AUTH_FRONTEND_ORIGINS || "")
+    .split(",")
+    .map((entry) => normalizeOrigin(entry))
+    .filter(Boolean);
 
   const allowAllOrigins = rawOrigins.includes("*");
   const explicitAllowedOrigins = rawOrigins.filter((origin) => origin !== "*");
 
-  const allowedOrigins = explicitAllowedOrigins.length > 0
-    ? explicitAllowedOrigins
-    : defaultAllowedOrigins;
+  const allowedOrigins = [...new Set([
+    ...defaultAllowedOrigins,
+    ...authOrigins,
+    ...explicitAllowedOrigins,
+  ])];
 
   return {
     allowAllOrigins,

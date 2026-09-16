@@ -517,48 +517,8 @@ export const normalizeDataForTimeframe = (data, timeframe, timezone = null) => {
   );
 };
 
-const isFlatCandle = (candle) =>
-  candle &&
-  candle.open === candle.high &&
-  candle.high === candle.low &&
-  candle.low === candle.close;
-
 export const repairMalformedMinuteCandles = (data, timeframe) => {
-  if (timeframe !== "1m" || !Array.isArray(data) || data.length < 2) {
-    return data;
-  }
-
-  const flatCandles = data.filter(isFlatCandle).length;
-  const flatRatio = flatCandles / data.length;
-
-  if (flatRatio < 0.35) {
-    return data;
-  }
-
-  return data.map((candle, index, candles) => {
-    if (index === 0 || !isFlatCandle(candle)) {
-      return candle;
-    }
-
-    const previousClose = candles[index - 1]?.close;
-    if (!Number.isFinite(previousClose)) {
-      return candle;
-    }
-
-    const open = previousClose;
-    const close = candle.close;
-    const high = Math.max(candle.high, open, close);
-    const low = Math.min(candle.low, open, close);
-
-    return {
-      ...candle,
-      open,
-      high,
-      low,
-      close,
-      value: close,
-    };
-  });
+  return data;
 };
 
 export const getPriceFormat = (lastPrice, currency) => {
@@ -724,4 +684,3 @@ export const aggregateDataForTimeframe = (data, timeframe, timezone = null) => {
   }
   return aggregated;
 };
-

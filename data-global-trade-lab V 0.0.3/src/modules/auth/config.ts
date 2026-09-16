@@ -14,6 +14,7 @@ const defaultLocalDevOrigins = [
     // Firebase Hosting default domains used by this project.
     "https://gtl1-f32d5.web.app",
     "https://gtl1-f32d5.firebaseapp.com",
+    "https://globaltradelab.site",
 ];
 
 const cookieSameSite = serverEnv.AUTH_COOKIE_SAME_SITE.toLowerCase() as "lax" | "strict" | "none";

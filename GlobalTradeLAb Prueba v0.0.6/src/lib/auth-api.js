@@ -25,6 +25,20 @@ const OAUTH_CALLBACK_SESSION_ATTEMPTS = 40;
 const OAUTH_CALLBACK_SESSION_DELAY_MS = 200;
 const OAUTH_BRIDGE_RETRY_ATTEMPTS = 24;
 const OAUTH_BRIDGE_RETRY_DELAY_MS = 250;
+const CSRF_COOKIE_NAMES = ["__Host-gtl_csrf", "gtl_csrf"];
+
+const readCookieValue = (name) => {
+  if (typeof document === "undefined") {
+    return "";
+  }
+
+  const cookies = String(document.cookie || "").split("; ");
+  const match = cookies.find((entry) => entry.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : "";
+};
+
+const readCsrfCookie = () =>
+  CSRF_COOKIE_NAMES.map(readCookieValue).find(Boolean) || "";
 
 const decodeJwtPayload = (token) => {
   if (typeof token !== "string") {
@@ -268,6 +282,13 @@ const request = async (
   }
 
   if (csrf) {
+    const cookieCsrfToken = readCsrfCookie();
+    if (cookieCsrfToken && cookieCsrfToken !== getCsrfToken()) {
+      setCsrfToken(cookieCsrfToken);
+    } else if (!cookieCsrfToken && getCsrfToken()) {
+      setCsrfToken("");
+    }
+
     const currentCsrfToken = getCsrfToken();
     if (!currentCsrfToken) {
       await bootstrapCsrf();

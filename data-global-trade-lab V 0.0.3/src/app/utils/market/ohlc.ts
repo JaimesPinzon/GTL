@@ -72,6 +72,15 @@ function normalizeProviderDateTimeToUtcIso(value: string | null | undefined) {
     return new Date(parsedTimestamp).toISOString();
 }
 
+function isAlignedProviderCandleTime(value: string) {
+    const timestamp = new Date(value);
+    if (!Number.isFinite(timestamp.getTime())) {
+        return false;
+    }
+
+    return timestamp.getUTCSeconds() === 0 && timestamp.getUTCMilliseconds() === 0;
+}
+
 export function buildCandlesFromQuoteRows(rows: QuoteHistoryRow[]) {
     const sortedRows = [...rows].sort(
         (left, right) =>
@@ -128,7 +137,8 @@ export function buildCandlesFromTimeSeriesValues(
 
             if (
                 ![open, high, low, close].every((entry) => entry !== null) ||
-                !normalizedTime
+                !normalizedTime ||
+                !isAlignedProviderCandleTime(normalizedTime)
             ) {
                 return null;
             }
@@ -218,13 +228,18 @@ export function buildCandlesFromStoredRows(rows: MarketCandleRow[]) {
             const high = parseNumeric(row.high_price);
             const low = parseNumeric(row.low_price);
             const close = parseNumeric(row.close_price);
+            const normalizedTime = normalizeProviderDateTimeToUtcIso(row.candle_time);
 
-            if (![open, high, low, close].every((value) => value !== null)) {
+            if (
+                ![open, high, low, close].every((value) => value !== null) ||
+                !normalizedTime ||
+                !isAlignedProviderCandleTime(normalizedTime)
+            ) {
                 return null;
             }
 
             return {
-                time: new Date(row.candle_time).toISOString(),
+                time: normalizedTime,
                 open: open as number,
                 high: high as number,
                 low: low as number,

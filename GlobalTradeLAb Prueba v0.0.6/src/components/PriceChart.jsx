@@ -38,6 +38,7 @@ const PriceChart = ({
     initialSymbols,
     marketData = {},
     preferencesState,
+    reportChartSnapshot,
     user,
   } = useTradingWorkspace();
   const selectedMarketData = marketData[selectedSymbol] ?? [];
@@ -161,6 +162,19 @@ const PriceChart = ({
   const prevPrice = previousOHLC.close || 0;
   const priceChange = currentPrice - prevPrice;
   const priceChangePercent = prevPrice !== 0 ? (priceChange / prevPrice) * 100 : 0;
+
+  useEffect(() => {
+    if (!selectedSymbol || !currentOHLC?.time || !Number.isFinite(currentPrice) || currentPrice <= 0) {
+      return;
+    }
+
+    reportChartSnapshot?.(selectedSymbol, {
+      time: currentOHLC.time,
+      price: currentPrice,
+      change: priceChangePercent,
+      currency,
+    });
+  }, [currency, currentOHLC?.time, currentPrice, priceChangePercent, reportChartSnapshot, selectedSymbol]);
 
   const chartWrapperClass = isFullScreen
     ? "flex h-full min-h-0 flex-1 flex-col bg-background p-3"

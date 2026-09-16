@@ -5,7 +5,7 @@ import { createModuleLoader } from './helpers/load-module.mjs';
 
 const load = createModuleLoader();
 const { latestCandleSnapshot, resolveMarketSnapshot, mergeMarketSnapshot } = load('src/lib/market-price.js');
-const { aggregateDataForTimeframe } = load('src/components/PriceChart/utils.js');
+const { aggregateDataForTimeframe, repairMalformedMinuteCandles } = load('src/components/PriceChart/utils.js');
 
 // Values and timestamp formats observed in the deployed public API on Sept 14.
 const quote = { close: '79727.58', percent_change: '-1.8983', timestamp: '2026-09-04T23:26:58.64185+00:00', stale: true };
@@ -58,6 +58,17 @@ test('24-hour change uses a reference from history and the current price', () =>
     { time: '2026-09-13T23:45:00Z', close: 80000 }, ...history,
   ] });
   assert.equal(snapshot.change, ((78283.3671875 - 80000) / 80000) * 100);
+});
+
+test('flat provider candles are not converted into artificial green bars', () => {
+  const flatCandles = [
+    { time: 1000, open: 75586.51, high: 75586.51, low: 75586.51, close: 75586.51 },
+    { time: 1060, open: 75620.00, high: 75620.00, low: 75620.00, close: 75620.00 },
+    { time: 1120, open: 75795.77, high: 75795.77, low: 75795.77, close: 75795.77 },
+  ];
+  const repaired = repairMalformedMinuteCandles(flatCandles, '1m');
+  assert.equal(repaired, flatCandles);
+  assert.deepEqual(repaired.map((candle) => candle.open), flatCandles.map((candle) => candle.open));
 });
 
 const account = (balance, roomId = 'room-1') => ({ id: `rm:${roomId}`, roomId, userId: 'student-1', availableBalance: balance, currency: 'USD' });

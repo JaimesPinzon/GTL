@@ -213,6 +213,7 @@ const es = {
       quantityPlaceholder: "Cantidad",
       currentPriceLabel: "Precio actual",
       totalEstimateLabel: "Costo total estimado",
+      totalBalanceLabel: "Saldo total",
       fileHelp: "Opcional, PNG/JPG, máx. 2 MB",
       importantInfoTitle: "Información importante",
       simulationNotice: "Todas las operaciones son simuladas con dinero virtual ({{currency}}).",

@@ -15,7 +15,7 @@ export function getHistoryLimit(timeframe) {
   return HISTORY_LIMIT_BY_TIMEFRAME[timeframe] ?? 500;
 }
 
-const OHLC_CACHE_VERSION = "v8-live-ohlc";
+const OHLC_CACHE_VERSION = "v10-aligned-ohlc";
 
 export function buildCacheKey({ symbol, timeframe, limit, from = null, to = null }) {
   return `${OHLC_CACHE_VERSION}::${symbol}::${timeframe}::${limit}::${from ?? "latest"}::${to ?? "latest"}`;
@@ -127,4 +127,3 @@ export async function loadOhlcHistory({
     clearPendingOhlcRequest(cacheKey);
   }
 }
-

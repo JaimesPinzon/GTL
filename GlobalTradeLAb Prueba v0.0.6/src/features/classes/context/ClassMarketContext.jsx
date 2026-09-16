@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -40,6 +40,7 @@ export const ClassMarketContextProvider = ({ children }) => {
   const [selectedSymbol, setSelectedSymbol] = useState("BTCUSD");
   const [marketData, setMarketData] = useState({});
   const [quoteData, setQuoteData] = useState({});
+  const [chartSnapshots, setChartSnapshots] = useState({});
   const [isMarketLoading, setIsMarketLoading] = useState(false);
 
   const isOperationalRoute = useMemo(
@@ -56,6 +57,7 @@ export const ClassMarketContextProvider = ({ children }) => {
     if (!shouldLoadMarket) {
       setMarketData({});
       setQuoteData({});
+      setChartSnapshots({});
       setIsMarketLoading(false);
       return;
     }
@@ -153,6 +155,40 @@ export const ClassMarketContextProvider = ({ children }) => {
     };
   }, [activeClassId, shouldLoadMarket]);
 
+  const reportChartSnapshot = useCallback((symbolId, snapshot) => {
+    if (!symbolId || !snapshot) {
+      return;
+    }
+
+    const price = Number(snapshot.price ?? snapshot.close ?? snapshot.value);
+    const time = Number(snapshot.time);
+
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(time)) {
+      return;
+    }
+
+    const nextSnapshot = {
+      time,
+      price,
+      change: Number.isFinite(snapshot.change) ? snapshot.change : null,
+      currency: snapshot.currency,
+      source: "chart",
+    };
+
+    setChartSnapshots((currentSnapshots) => {
+      const currentSnapshot = currentSnapshots[symbolId];
+      if (
+        currentSnapshot?.time === nextSnapshot.time &&
+        currentSnapshot?.price === nextSnapshot.price &&
+        currentSnapshot?.change === nextSnapshot.change
+      ) {
+        return currentSnapshots;
+      }
+
+      return { ...currentSnapshots, [symbolId]: nextSnapshot };
+    });
+  }, []);
+
   useEffect(() => {
     if (!shouldLoadMarket) {
       return undefined;
@@ -205,6 +241,11 @@ export const ClassMarketContextProvider = ({ children }) => {
   }, [shouldLoadMarket]);
 
   const getCurrentPrice = (symbolId) => {
+    const chartSnapshot = chartSnapshots[symbolId];
+    if (Number.isFinite(chartSnapshot?.price) && chartSnapshot.price > 0) {
+      return chartSnapshot.price;
+    }
+
     const snapshot = resolveMarketSnapshot({
       quote: quoteData[symbolId],
       candles: marketData[symbolId] || [],
@@ -218,6 +259,11 @@ export const ClassMarketContextProvider = ({ children }) => {
   };
 
   const calculateChange = (symbolId) => {
+    const chartSnapshot = chartSnapshots[symbolId];
+    if (Number.isFinite(chartSnapshot?.change)) {
+      return chartSnapshot.change;
+    }
+
     const snapshot = resolveMarketSnapshot({
       quote: quoteData[symbolId],
       candles: marketData[symbolId] || [],
@@ -234,7 +280,7 @@ export const ClassMarketContextProvider = ({ children }) => {
         price: getCurrentPrice(symbol.id),
         change: calculateChange(symbol.id),
       })),
-    [marketData, quoteData, t]
+    [chartSnapshots, marketData, quoteData, t]
   );
 
   const value = useMemo(
@@ -244,11 +290,12 @@ export const ClassMarketContextProvider = ({ children }) => {
       isMarketLoading,
       marketData,
       quoteData,
+      reportChartSnapshot,
       selectedSymbol,
       setSelectedSymbol,
       symbols,
     }),
-    [isMarketLoading, marketData, quoteData, selectedSymbol, symbols]
+    [isMarketLoading, marketData, quoteData, reportChartSnapshot, selectedSymbol, symbols]
   );
 
   return <ClassMarketContext.Provider value={value}>{children}</ClassMarketContext.Provider>;
