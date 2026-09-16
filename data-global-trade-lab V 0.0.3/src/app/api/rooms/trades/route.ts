@@ -33,6 +33,72 @@ function checkDatabaseError(error: { code: string; message: string } | null) {
   }
   throw new AuthHttpError(500, 'No se pudo guardar la operación. Reintenta el mismo envío para comprobar su estado.');
 }
+async function readSnapshotFallback(roomId: string, userId: string, viewerId: string) {
+  const { data: viewerMember, error: viewerError } = await supabaseAdmin
+    .from('room_members')
+    .select('id, role_in_room')
+    .eq('room_id', roomId)
+    .eq('user_id', viewerId)
+    .eq('state', 'active')
+    .maybeSingle();
+  if (viewerError) checkDatabaseError(viewerError);
+  if (!viewerMember || (viewerId !== userId && !['teacher', 'monitor'].includes(viewerMember.role_in_room))) {
+    throw new AuthHttpError(403, 'No tienes acceso al portafolio de esta sala.');
+  }
+
+  const { data: member, error: memberError } = await supabaseAdmin
+    .from('room_members')
+    .select('id, individual_available_balance, individual_blocked_balance, individual_total_balance, individual_currency')
+    .eq('room_id', roomId)
+    .eq('user_id', userId)
+    .eq('state', 'active')
+    .maybeSingle();
+  if (memberError) checkDatabaseError(memberError);
+  if (!member) throw new AuthHttpError(403, 'No hay una cuenta activa en esta sala.');
+
+  const { data: groupMembership, error: groupError } = await supabaseAdmin
+    .from('room_group_members')
+    .select('id, group_id, group_available_balance, group_blocked_balance, group_total_balance, group_currency, group:room_groups(id, state)')
+    .eq('room_id', roomId)
+    .eq('user_id', userId)
+    .eq('state', 'active')
+    .maybeSingle();
+  if (groupError) console.warn('room trade fallback group warning', { code: groupError.code, message: groupError.message });
+  const group = Array.isArray(groupMembership?.group) ? groupMembership.group[0] : groupMembership?.group;
+  const useGroup = Boolean(groupMembership?.group_id && (!group?.state || group.state === 'active'));
+  const activeGroupMembership = useGroup ? groupMembership : null;
+  const account = useGroup
+    ? {
+        id: `rgm:${activeGroupMembership!.id}`, roomId, userId,
+        availableBalance: Number(activeGroupMembership!.group_available_balance ?? 0),
+        blockedBalance: Number(activeGroupMembership!.group_blocked_balance ?? 0),
+        totalBalance: Number(activeGroupMembership!.group_total_balance ?? 0),
+        currency: activeGroupMembership!.group_currency || 'USD',
+        state: 'active', ownerType: 'group', ownerGroupId: activeGroupMembership!.group_id, isShared: true,
+      }
+    : {
+        id: `rm:${member.id}`, roomId, userId,
+        availableBalance: Number(member.individual_available_balance ?? 0),
+        blockedBalance: Number(member.individual_blocked_balance ?? 0),
+        totalBalance: Number(member.individual_total_balance ?? 0),
+        currency: member.individual_currency || 'USD',
+        state: 'active', ownerType: 'user', ownerGroupId: null, isShared: false,
+      };
+
+  const [positionsResult, transactionsResult] = await Promise.all([
+    supabaseAdmin.from('positions').select('*').eq('room_id', roomId).eq('user_id', userId).order('open_date', { ascending: false }),
+    supabaseAdmin.from('transactions').select('*').eq('room_id', roomId).eq('user_id', userId).order('date', { ascending: false }),
+  ]);
+  if (positionsResult.error) checkDatabaseError(positionsResult.error);
+  if (transactionsResult.error) checkDatabaseError(transactionsResult.error);
+
+  return {
+    account,
+    positions: positionsResult.data || [],
+    transactions: transactionsResult.data || [],
+    result: { profitOrLoss: 0 },
+  };
+}
 export const OPTIONS = authOptionsResponse;
 export async function GET(request: NextRequest) {
   return withAuthErrors(request, async () => {
@@ -42,6 +108,13 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabaseAdmin.rpc('room_trading_snapshot', {
       p_room_id: roomId, p_user_id: userId, p_viewer_id: user.id,
     });
+    if (error && ['PGRST202', '42703', '42P01'].includes(error.code)) {
+      console.warn('room trade snapshot fallback', { code: error.code, message: error.message });
+      const fallback = await readSnapshotFallback(roomId, userId, user.id);
+      const response = authJson(request, { ok: true, ...fallback });
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
     checkDatabaseError(error);
     const response = authJson(request, { ok: true, ...data });
     response.headers.set('Cache-Control', 'no-store');

@@ -4,6 +4,7 @@ import {
     getLastCandleMarketBySymbols,
     type LastCandleMarketSnapshot,
 } from "@/app/utils/market/last-candle-market";
+import { refreshTrackedQuotesIfDue } from "@/app/utils/market/quotes-refresh";
 import { type MarketQuotePayload } from "@/app/utils/market/quotes-cache";
 
 const corsHeaders = {
@@ -15,6 +16,38 @@ const corsHeaders = {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const DEFAULT_REFRESH_INTERVAL_MS = 108000;
+
+const resolveRefreshIntervalMs = () => {
+    const raw = Number.parseInt(
+        String(process.env.MARKET_QUOTES_REFRESH_TTL_MS ?? ""),
+        10
+    );
+
+    if (Number.isFinite(raw) && raw > 0) {
+        return raw;
+    }
+
+    return DEFAULT_REFRESH_INTERVAL_MS;
+};
+
+const isSnapshotExpired = (snapshot: LastCandleMarketSnapshot | null) => {
+    if (!snapshot) {
+        return true;
+    }
+
+    if (!Number.isFinite(snapshot.price) || snapshot.price <= 0) {
+        return true;
+    }
+
+    const fetchedAtMs = Date.parse(snapshot.fetchedAt);
+    if (!Number.isFinite(fetchedAtMs)) {
+        return true;
+    }
+
+    return Date.now() - fetchedAtMs > resolveRefreshIntervalMs();
+};
 
 export async function OPTIONS() {
     return new NextResponse(null, {
@@ -47,8 +80,37 @@ export async function GET(request: Request) {
     });
 
     try {
-        const latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
-        const snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || null;
+        let latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
+        let snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || null;
+        let autoRefresh: Awaited<ReturnType<typeof refreshTrackedQuotesIfDue>> | null = null;
+
+        if (isSnapshotExpired(snapshot)) {
+            try {
+                autoRefresh = await refreshTrackedQuotesIfDue({ symbols: [symbol] });
+                latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
+                snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || snapshot;
+            } catch (refreshError) {
+                console.warn("quote refresh unavailable; serving stored snapshot", refreshError);
+            }
+
+            if (
+                isSnapshotExpired(snapshot) &&
+                autoRefresh?.skipped &&
+                autoRefresh.reason === "refresh_window_locked_or_not_due"
+            ) {
+                try {
+                    autoRefresh = await refreshTrackedQuotesIfDue({
+                        symbols: [symbol],
+                        force: true,
+                    });
+
+                    latestSnapshotBySymbol = await getLastCandleMarketBySymbols([symbol]);
+                    snapshot = latestSnapshotBySymbol.get(symbol.toUpperCase()) || snapshot;
+                } catch (refreshError) {
+                    console.warn("forced quote refresh unavailable; serving stored snapshot", refreshError);
+                }
+            }
+        }
 
         if (snapshot && Number.isFinite(snapshot.price) && snapshot.price > 0) {
             return NextResponse.json(
@@ -57,6 +119,7 @@ export async function GET(request: Request) {
                     source: "supabase_snapshot",
                     stale: snapshot.isStale,
                     degraded: snapshot.isStale,
+                    autoRefresh,
                     data: toSnapshotQuotePayload(snapshot),
                     persisted: false,
                     cacheTtlMs: 108000,
@@ -76,6 +139,7 @@ export async function GET(request: Request) {
                 degraded: true,
                 source: "supabase_snapshot",
                 error: `Missing snapshot payload for ${symbol}`,
+                autoRefresh,
                 data: null,
                 persisted: false,
             },
