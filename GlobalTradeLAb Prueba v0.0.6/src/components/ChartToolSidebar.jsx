@@ -142,9 +142,7 @@ const ChartToolSidebar = ({
         <button
           type="button"
           title={t("priceChart.tools.clear")}
-          onClick={() => {
-            if (window.confirm(t("priceChart.drawings.clearConfirm"))) onClear();
-          }}
+          onClick={onClear}
           className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-rose-500/10 hover:text-rose-400"
         >
           <Trash2 className="h-4 w-4" />

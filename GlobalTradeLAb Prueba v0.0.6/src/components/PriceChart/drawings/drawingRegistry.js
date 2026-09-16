@@ -22,12 +22,12 @@ export const DRAWING_CATEGORIES = [
   {
     id: "measurements",
     labelKey: "priceChart.drawings.categories.measurements",
-    tools: ["priceMeasure", "timeMeasure", "rangeMeasure"],
+    tools: ["priceMeasure", "timeMeasure", "rangeMeasure", "longPosition", "shortPosition"],
   },
   {
     id: "fibonacci",
     labelKey: "priceChart.drawings.categories.fibonacci",
-    tools: ["fibonacciRetracement"],
+    tools: ["fibonacciRetracement", "fibonacciExtension"],
   },
 ];
 
@@ -48,7 +48,10 @@ export const DRAWING_REGISTRY = {
   priceMeasure: { labelKey: "priceChart.drawings.tools.priceMeasure", points: 2 },
   timeMeasure: { labelKey: "priceChart.drawings.tools.timeMeasure", points: 2 },
   rangeMeasure: { labelKey: "priceChart.drawings.tools.rangeMeasure", points: 2 },
+  longPosition: { labelKey: "priceChart.drawings.tools.longPosition", points: 3 },
+  shortPosition: { labelKey: "priceChart.drawings.tools.shortPosition", points: 3 },
   fibonacciRetracement: { labelKey: "priceChart.drawings.tools.fibonacciRetracement", points: 2 },
+  fibonacciExtension: { labelKey: "priceChart.drawings.tools.fibonacciExtension", points: 3 },
 };
 
 export const getDrawingDefinition = (type) => DRAWING_REGISTRY[type] ?? null;
@@ -58,4 +61,3 @@ export const getDrawingLabelKey = (type) =>
 
 export const drawingIsVisibleInTimeframe = (drawing, timeframe) =>
   drawing?.timeframeScope?.mode !== "single" || drawing?.timeframeScope?.timeframe === timeframe;
-

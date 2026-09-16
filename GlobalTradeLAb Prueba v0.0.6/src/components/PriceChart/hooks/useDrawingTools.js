@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDrawings } from "./useDrawings";
-import { createDrawing, cloneDrawing } from "../drawings/drawingDefaults";
+import {
+  applyDrawingConfigurationTemplate,
+  createDrawing,
+  cloneDrawing,
+  drawingIsReadOnly,
+} from "../drawings/drawingDefaults";
 import { drawingIsVisibleInTimeframe, getDrawingDefinition } from "../drawings/drawingRegistry";
 import {
   anchorToPoint,
@@ -28,6 +33,7 @@ export function useDrawingTools({
   activeTool,
   chartContainerRef,
   chartRef,
+  classId,
   currentTimeframe,
   keepToolActive,
   magnetMode,
@@ -37,7 +43,7 @@ export function useDrawingTools({
   seriesRef,
   setActiveTool,
 }) {
-  const store = useDrawings({ selectedSymbol, currentTimeframe, ownerId });
+  const store = useDrawings({ selectedSymbol, currentTimeframe, ownerId, classId });
   const [tempDrawingPoints, setTempDrawingPoints] = useState([]);
   const [previewPoint, setPreviewPoint] = useState(null);
   const [interactionMode, setInteractionMode] = useState("idle");
@@ -80,7 +86,7 @@ export function useDrawingTools({
   const completeDrawing = useCallback((type, anchors) => {
     if (!type || !anchors.length) return;
     const zIndex = Math.max(0, ...store.drawingObjects.map((drawing) => Number(drawing.zIndex) || 0)) + 1;
-    const drawing = createDrawing({
+    const baseDrawing = createDrawing({
       type,
       anchors,
       symbol: selectedSymbol,
@@ -88,6 +94,14 @@ export function useDrawingTools({
       ownerId,
       zIndex,
     });
+    const styleTemplate = store.drawingObjects
+      .filter((drawing) => drawing.type === type)
+      .sort((left, right) => {
+        const leftUpdated = Date.parse(left.updatedAt || left.createdAt || "") || 0;
+        const rightUpdated = Date.parse(right.updatedAt || right.createdAt || "") || 0;
+        return rightUpdated - leftUpdated;
+      })[0];
+    const drawing = applyDrawingConfigurationTemplate(baseDrawing, styleTemplate);
     store.addDrawing(drawing);
     setTempDrawingPoints([]);
     setPreviewPoint(null);
@@ -188,7 +202,7 @@ export function useDrawingTools({
 
   const beginDrag = useCallback((event, drawingId, anchorIndex = null) => {
     const drawing = store.drawingObjects.find((item) => item.id === drawingId);
-    if (!drawing || drawing.state?.locked) return;
+    if (!drawing || drawing.state?.locked || drawingIsReadOnly(drawing, ownerId)) return;
     const startPoint = clientPointToChartPoint(event, chartContainerRef.current);
     if (!startPoint) return;
     event.preventDefault();
@@ -203,7 +217,7 @@ export function useDrawingTools({
     };
     setInteractionMode(anchorIndex === null ? "dragging-object" : "dragging-anchor");
     chartRef.current?.applyOptions({ handleScroll: false, handleScale: false });
-  }, [chartContainerRef, chartRef, store]);
+  }, [chartContainerRef, chartRef, ownerId, store]);
 
   const handleDragMove = useCallback((event) => {
     const drag = dragRef.current;
@@ -366,6 +380,12 @@ export function useDrawingTools({
         event.preventDefault();
         if (event.shiftKey) storeRef.current.redo();
         else storeRef.current.undo();
+      } else if (controlKey && event.key.toLowerCase() === "c" && storeRef.current.selectedDrawingId) {
+        event.preventDefault();
+        storeRef.current.copyDrawingStyle(storeRef.current.selectedDrawingId);
+      } else if (controlKey && event.key.toLowerCase() === "v" && storeRef.current.selectedDrawingId && storeRef.current.hasCopiedStyle) {
+        event.preventDefault();
+        storeRef.current.pasteDrawingStyle(storeRef.current.selectedDrawingId);
       } else if (controlKey && event.key.toLowerCase() === "d" && storeRef.current.selectedDrawingId) {
         event.preventDefault();
         storeRef.current.duplicateDrawing(storeRef.current.selectedDrawingId);
@@ -399,7 +419,7 @@ export function useDrawingTools({
 
   const visibleDrawings = useMemo(
     () => store.drawingObjects
-      .filter((drawing) => !drawing.state?.hidden && drawingIsVisibleInTimeframe(drawing, currentTimeframe))
+      .filter((drawing) => drawing.state?.hidden !== true && drawingIsVisibleInTimeframe(drawing, currentTimeframe))
       .sort((left, right) => (left.zIndex || 0) - (right.zIndex || 0)),
     [currentTimeframe, store.drawingObjects]
   );

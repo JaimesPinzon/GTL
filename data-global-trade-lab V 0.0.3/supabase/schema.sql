@@ -1056,9 +1056,11 @@ create table if not exists public.activity_grades (
 create table if not exists public.chart_drawings (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references public.profiles (user_id) on delete cascade,
+    class_id uuid references public.rooms (id) on delete cascade,
     symbol text not null,
     timeframe text not null,
     objects jsonb not null default '[]'::jsonb,
+    visibility text not null default 'private' check (visibility in ('private', 'class')),
     created_at timestamptz not null default timezone('utc', now()),
     updated_at timestamptz not null default timezone('utc', now()),
     unique (user_id, symbol, timeframe)
@@ -1066,6 +1068,10 @@ create table if not exists public.chart_drawings (
 
 create index if not exists chart_drawings_user_symbol_timeframe_idx
     on public.chart_drawings (user_id, symbol, timeframe);
+
+create index if not exists chart_drawings_shared_class_symbol_idx
+    on public.chart_drawings (class_id, symbol, timeframe)
+    where visibility = 'class';
 
 create or replace function public.handle_updated_at()
 returns trigger
@@ -1686,34 +1692,102 @@ with check (
 
 
 drop policy if exists "chart_drawings_select_own" on public.chart_drawings;
+drop policy if exists "chart_drawings_select_class" on public.chart_drawings;
 drop policy if exists "chart_drawings_insert_own" on public.chart_drawings;
 drop policy if exists "chart_drawings_update_own" on public.chart_drawings;
 drop policy if exists "chart_drawings_delete_own" on public.chart_drawings;
+
+create or replace function private.can_read_class_drawing(p_class_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+    select exists (
+        select 1 from public.room_members rm
+        where rm.room_id = p_class_id
+          and rm.user_id = (select auth.uid())
+          and rm.state = 'active'
+    );
+$$;
+
+create or replace function private.can_manage_class_drawing(p_class_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+    select exists (
+        select 1 from public.room_members rm
+        where rm.room_id = p_class_id
+          and rm.user_id = (select auth.uid())
+          and rm.role_in_room in ('teacher', 'monitor')
+          and rm.state = 'active'
+    );
+$$;
+
+revoke all on function private.can_read_class_drawing(uuid) from public;
+revoke all on function private.can_manage_class_drawing(uuid) from public;
+grant usage on schema private to authenticated;
+grant execute on function private.can_read_class_drawing(uuid) to authenticated;
+grant execute on function private.can_manage_class_drawing(uuid) to authenticated;
 
 create policy "chart_drawings_select_own"
 on public.chart_drawings
 for select
 to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
+
+create policy "chart_drawings_select_class"
+on public.chart_drawings
+for select
+to authenticated
+using (
+    visibility = 'class'
+    and class_id is not null
+    and (select private.can_read_class_drawing(class_id))
+);
 
 create policy "chart_drawings_insert_own"
 on public.chart_drawings
 for insert
 to authenticated
-with check (auth.uid() = user_id);
+with check (
+    (select auth.uid()) = user_id
+    and (
+        visibility = 'private'
+        or (
+            visibility = 'class'
+            and class_id is not null
+            and (select private.can_manage_class_drawing(class_id))
+        )
+    )
+);
 
 create policy "chart_drawings_update_own"
 on public.chart_drawings
 for update
 to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using ((select auth.uid()) = user_id)
+with check (
+    (select auth.uid()) = user_id
+    and (
+        visibility = 'private'
+        or (
+            visibility = 'class'
+            and class_id is not null
+            and (select private.can_manage_class_drawing(class_id))
+        )
+    )
+);
 
 create policy "chart_drawings_delete_own"
 on public.chart_drawings
 for delete
 to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 
 

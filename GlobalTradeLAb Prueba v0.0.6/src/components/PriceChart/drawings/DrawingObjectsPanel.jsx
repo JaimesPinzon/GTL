@@ -4,12 +4,14 @@ import {
   ArrowUp,
   Eye,
   EyeOff,
+  GraduationCap,
   Lock,
   Trash2,
   Unlock,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getDrawingLabelKey } from "./drawingRegistry";
+import { drawingIsReadOnly } from "./drawingDefaults";
 
 const STATUS_COLORS = {
   saved: "text-emerald-400",
@@ -53,6 +55,7 @@ const DrawingObjectsPanel = ({ workspace }) => {
         <div className="space-y-2">
           {[...drawings].sort((left, right) => (right.zIndex || 0) - (left.zIndex || 0)).map((drawing) => {
             const isSelected = workspace.selectedDrawingId === drawing.id;
+            const isReadOnly = drawingIsReadOnly(drawing, workspace.currentUserId);
             return (
               <div
                 key={drawing.id}
@@ -63,14 +66,16 @@ const DrawingObjectsPanel = ({ workspace }) => {
               >
                 <input
                   value={drawing.name || ""}
+                  disabled={isReadOnly}
                   onChange={(event) => actions.update?.(drawing.id, { name: event.target.value })}
                   onClick={(event) => event.stopPropagation()}
                   placeholder={t(getDrawingLabelKey(drawing.type))}
-                  className="w-full truncate border-0 bg-transparent px-1 py-1 text-sm font-medium text-foreground outline-none placeholder:text-foreground"
+                  className="w-full truncate border-0 bg-transparent px-1 py-1 text-sm font-medium text-foreground outline-none placeholder:text-foreground disabled:cursor-default"
                   aria-label={t("priceChart.drawings.layers.rename")}
                 />
                 <div className="mt-1 flex items-center justify-between gap-2">
                   <span className="truncate px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {isReadOnly ? <GraduationCap className="mr-1 inline h-3 w-3 text-primary" /> : null}
                     {drawing.timeframeScope?.mode === "single"
                       ? drawing.timeframeScope.timeframe
                       : t("priceChart.drawings.properties.allTimeframes")}
@@ -78,23 +83,23 @@ const DrawingObjectsPanel = ({ workspace }) => {
                   <div className="flex items-center">
                     <button
                       type="button"
-                      onClick={(event) => { event.stopPropagation(); actions.update?.(drawing.id, { state: { ...drawing.state, hidden: !drawing.state?.hidden } }); }}
+                      onClick={(event) => { event.stopPropagation(); actions.setHidden?.(drawing.id, drawing.state?.hidden !== true); }}
                       className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                       title={drawing.state?.hidden ? t("priceChart.drawings.actions.show") : t("priceChart.drawings.actions.hide")}
                     >
                       {drawing.state?.hidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </button>
-                    <button
+                    {!isReadOnly ? <button
                       type="button"
                       onClick={(event) => { event.stopPropagation(); actions.update?.(drawing.id, { state: { ...drawing.state, locked: !drawing.state?.locked } }); }}
                       className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                       title={drawing.state?.locked ? t("priceChart.drawings.actions.unlock") : t("priceChart.drawings.actions.lock")}
                     >
                       {drawing.state?.locked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
-                    </button>
-                    <button type="button" onClick={(event) => { event.stopPropagation(); actions.reorder?.(drawing.id, "front"); }} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" title={t("priceChart.drawings.actions.front")}><ArrowUp className="h-3.5 w-3.5" /></button>
-                    <button type="button" onClick={(event) => { event.stopPropagation(); actions.reorder?.(drawing.id, "back"); }} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" title={t("priceChart.drawings.actions.back")}><ArrowDown className="h-3.5 w-3.5" /></button>
-                    <button type="button" onClick={(event) => { event.stopPropagation(); actions.remove?.(drawing.id); }} className="flex h-7 w-7 items-center justify-center rounded text-rose-400 hover:bg-rose-500/10" title={t("common.actions.delete")}><Trash2 className="h-3.5 w-3.5" /></button>
+                    </button> : null}
+                    {!isReadOnly ? <button type="button" onClick={(event) => { event.stopPropagation(); actions.reorder?.(drawing.id, "front"); }} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" title={t("priceChart.drawings.actions.front")}><ArrowUp className="h-3.5 w-3.5" /></button> : null}
+                    {!isReadOnly ? <button type="button" onClick={(event) => { event.stopPropagation(); actions.reorder?.(drawing.id, "back"); }} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" title={t("priceChart.drawings.actions.back")}><ArrowDown className="h-3.5 w-3.5" /></button> : null}
+                    {!isReadOnly ? <button type="button" onClick={(event) => { event.stopPropagation(); actions.remove?.(drawing.id); }} className="flex h-7 w-7 items-center justify-center rounded text-rose-400 hover:bg-rose-500/10" title={t("common.actions.delete")}><Trash2 className="h-3.5 w-3.5" /></button> : null}
                   </div>
                 </div>
               </div>
@@ -107,4 +112,3 @@ const DrawingObjectsPanel = ({ workspace }) => {
 };
 
 export default DrawingObjectsPanel;
-

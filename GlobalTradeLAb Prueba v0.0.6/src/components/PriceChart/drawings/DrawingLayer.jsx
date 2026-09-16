@@ -9,6 +9,7 @@ import {
   pointsToPath,
 } from "./drawingGeometry";
 import { getDrawingLabelKey } from "./drawingRegistry";
+import { drawingIsReadOnly } from "./drawingDefaults";
 import DrawingPropertiesPanel from "./DrawingPropertiesPanel";
 
 const formatElapsed = (seconds) => {
@@ -34,13 +35,21 @@ const DrawingLayer = ({
   chartRevision,
   currency,
   currentTimeframe,
+  activeClassId,
+  canManageEducationalDrawings,
+  currentUserId,
   activeTool,
   drawings,
+  hasCopiedStyle,
   onBeginDrag,
+  onCopyStyle,
   onDuplicate,
+  onPasteStyle,
   onRemove,
   onReorder,
   onSelect,
+  onSetHidden,
+  onSetExplanationVisible,
   onUpdate,
   previewDrawing,
   renderedDataRef,
@@ -150,6 +159,7 @@ const DrawingLayer = ({
   const renderEntry = ({ drawing, points }) => {
     const isPreview = drawing.id === "__preview";
     const isSelected = drawing.id === selectedDrawingId;
+    const isReadOnly = drawingIsReadOnly(drawing, currentUserId);
     const style = drawing.style || {};
     const stroke = style.color || "#2962ff";
     const strokeWidth = Number(style.width) || 2;
@@ -177,7 +187,7 @@ const DrawingLayer = ({
             fill={shapeFill === "none" ? "none" : "transparent"}
             stroke="transparent"
             strokeWidth={Math.max(10, strokeWidth + 8)}
-            style={{ pointerEvents: shapeFill === "none" ? "stroke" : "all", cursor: drawing.state?.locked ? "pointer" : "move" }}
+            style={{ pointerEvents: shapeFill === "none" ? "stroke" : "all", cursor: drawing.state?.locked || isReadOnly ? "pointer" : "move" }}
             {...bodyEvents}
           />
         ) : null}
@@ -229,20 +239,74 @@ const DrawingLayer = ({
     } else if (drawing.type === "timeMeasure" && points[0] && points[1]) {
       const y = points[0].y;
       content = <InteractivePath d={pointsToPath([{ x: points[0].x, y }, { x: points[1].x, y }])} />;
-    } else if (drawing.type === "fibonacciRetracement" && points[0] && points[1]) {
-      const x1 = Math.min(points[0].x, points[1].x);
-      const x2 = drawing.fibonacci?.extendRight ? viewport.width : Math.max(points[0].x, points[1].x);
+    } else if (["longPosition", "shortPosition"].includes(drawing.type) && points[0] && points[1]) {
+      const positionPoints = points.slice(0, 3).filter(Boolean);
+      const entryPrice = Number(drawing.anchors[0].price);
+      const stopPrice = Number(drawing.anchors[1].price);
+      const targetPrice = Number(drawing.anchors[2]?.price ?? drawing.anchors[0].price);
+      const x1 = Math.min(...positionPoints.map((point) => point.x));
+      const rawX2 = Math.max(...positionPoints.map((point) => point.x));
+      const x2 = Math.min(viewport.width, Math.max(rawX2, x1 + 80));
+      const entryY = points[0].y;
+      const stopY = points[1].y;
+      const targetY = points[2]?.y ?? entryY;
+      const riskPerUnit = Math.abs(entryPrice - stopPrice);
+      const rewardPerUnit = Math.abs(targetPrice - entryPrice);
+      const riskReward = riskPerUnit > 0 ? rewardPerUnit / riskPerUnit : 0;
+      const riskPercent = entryPrice !== 0 ? (riskPerUnit / Math.abs(entryPrice)) * 100 : 0;
+      const rewardPercent = entryPrice !== 0 ? (rewardPerUnit / Math.abs(entryPrice)) * 100 : 0;
+      const capital = Math.max(0, Number(drawing.position?.capital) || 0);
+      const accountRiskPercent = Math.max(0, Number(drawing.position?.accountRiskPercent) || 0);
+      const riskAmount = capital * accountRiskPercent / 100;
+      const units = riskPerUnit > 0 ? riskAmount / riskPerUnit : 0;
+      const outerTop = Math.min(entryY, stopY, targetY);
+      const outerBottom = Math.max(entryY, stopY, targetY);
+      const outerPath = pointsToPath([
+        { x: x1, y: outerTop },
+        { x: x2, y: outerTop },
+        { x: x2, y: outerBottom },
+        { x: x1, y: outerBottom },
+      ], true);
+      content = (
+        <>
+          <rect x={x1} y={Math.min(entryY, targetY)} width={Math.max(1, x2 - x1)} height={Math.max(1, Math.abs(targetY - entryY))} fill="#22c55e" fillOpacity={0.18} stroke="#22c55e" strokeWidth={1} />
+          <rect x={x1} y={Math.min(entryY, stopY)} width={Math.max(1, x2 - x1)} height={Math.max(1, Math.abs(stopY - entryY))} fill="#ef4444" fillOpacity={0.18} stroke="#ef4444" strokeWidth={1} />
+          <line x1={x1} x2={x2} y1={entryY} y2={entryY} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />
+          <InteractivePath d={outerPath} />
+          {style.showLabels ? (
+            <g>
+              <text x={x1 + 6} y={entryY - 5} fill="hsl(var(--foreground))" fontSize="10" fontWeight="700">ENTRY {formatPrice(entryPrice, currency)}</text>
+              <text x={x1 + 6} y={stopY + (stopY < entryY ? -5 : 14)} fill="#ef4444" fontSize="10" fontWeight="700">SL {formatPrice(stopPrice, currency)} · {riskPercent.toFixed(2)}%</text>
+              <text x={x1 + 6} y={targetY + (targetY < entryY ? -5 : 14)} fill="#22c55e" fontSize="10" fontWeight="700">TP {formatPrice(targetPrice, currency)} · {rewardPercent.toFixed(2)}%</text>
+              <g transform={`translate(${x1 + 6} ${outerTop + 6})`}>
+                <rect width={Math.min(238, Math.max(170, x2 - x1 - 12))} height={22} rx={5} fill="hsl(var(--background))" opacity={0.9} />
+                <text x={7} y={15} fill="hsl(var(--foreground))" fontSize="10" fontWeight="600">R:R {riskReward.toFixed(2)} · {units.toFixed(4)} u · {formatPrice(riskAmount, currency)}</text>
+              </g>
+            </g>
+          ) : null}
+        </>
+      );
+    } else if (["fibonacciRetracement", "fibonacciExtension"].includes(drawing.type) && points[0] && points[1] && (drawing.type !== "fibonacciExtension" || points[2])) {
+      const fibonacciPoints = drawing.type === "fibonacciExtension" ? points.slice(0, 3) : points.slice(0, 2);
+      const minimumX = Math.min(...fibonacciPoints.map((point) => point.x));
+      const maximumX = Math.max(...fibonacciPoints.map((point) => point.x));
+      const x1 = drawing.fibonacci?.extendLeft ? 0 : minimumX;
+      const x2 = drawing.fibonacci?.extendRight ? viewport.width : maximumX;
       const priceStart = Number(drawing.anchors[0].price);
       const priceEnd = Number(drawing.anchors[1].price);
+      const extensionBase = drawing.type === "fibonacciExtension"
+        ? Number(drawing.anchors[2].price)
+        : priceStart;
       content = (
         <g {...bodyEvents} style={{ pointerEvents: isInteractive ? "all" : "none", cursor: drawing.state?.locked ? "pointer" : "move" }}>
           {(drawing.fibonacci?.levels || []).filter((level) => level.visible !== false).map((level) => {
-            const levelPrice = priceStart + (priceEnd - priceStart) * Number(level.value);
+            const levelPrice = extensionBase + (priceEnd - priceStart) * Number(level.value);
             const y = seriesRef.current?.priceToCoordinate(levelPrice);
             if (!Number.isFinite(y)) return null;
             return (
               <g key={`${drawing.id}-${level.value}`}>
                 <line x1={x1} x2={x2} y1={y} y2={y} stroke={level.color || stroke} strokeWidth={strokeWidth} strokeDasharray={dash} opacity={opacity} />
+                {isInteractive ? <line x1={x1} x2={x2} y1={y} y2={y} stroke="transparent" strokeWidth={Math.max(10, strokeWidth + 8)} /> : null}
                 {style.showLabels ? <text x={Math.min(x2 - 6, x1 + 6)} y={y - 4} fill={level.color || stroke} fontSize="11">{level.value} · {formatPrice(levelPrice, currency)}</text> : null}
               </g>
             );
@@ -281,7 +345,17 @@ const DrawingLayer = ({
             </text>
           </g>
         ) : null}
-        {isSelected && !isPreview ? renderHandles(drawing, points) : null}
+        {isSelected && !isPreview && !isReadOnly ? renderHandles(drawing, points) : null}
+        {!isPreview && drawing.education?.showExplanation && drawing.education?.explanation && points[0] ? (
+          <g transform={`translate(${Math.min(viewport.width - 236, Math.max(8, points[0].x + 12))} ${Math.min(viewport.height - 42, Math.max(8, points[0].y + 12))})`}>
+            <rect width={228} height={34} rx={8} fill="hsl(var(--background))" fillOpacity={0.94} stroke={stroke} strokeOpacity={0.55} />
+            <text x={10} y={21} fill="hsl(var(--foreground))" fontSize="10" fontWeight="600">
+              {drawing.education.explanation.length > 38
+                ? `${drawing.education.explanation.slice(0, 38)}…`
+                : drawing.education.explanation}
+            </text>
+          </g>
+        ) : null}
       </g>
     );
   };
@@ -300,15 +374,23 @@ const DrawingLayer = ({
       <DrawingPropertiesPanel
         drawing={selectedDrawing}
         currentTimeframe={currentTimeframe}
+        activeClassId={activeClassId}
+        canManageEducationalDrawings={canManageEducationalDrawings}
+        currentUserId={currentUserId}
+        hasCopiedStyle={hasCopiedStyle}
+        onCopyStyle={onCopyStyle}
         onDuplicate={onDuplicate}
+        onPasteStyle={onPasteStyle}
         onRemove={onRemove}
+        onSetHidden={onSetHidden}
+        onSetExplanationVisible={onSetExplanationVisible}
         onUpdate={onUpdate}
       />
 
       {contextMenu ? (
         <div
           className="app-chrome-strong pointer-events-auto absolute z-40 w-52 overflow-hidden rounded-xl border border-border/80 py-1 text-sm text-foreground shadow-2xl"
-          style={{ left: Math.min(contextMenu.x, viewport.width - 220), top: Math.min(contextMenu.y, viewport.height - 250) }}
+          style={{ left: Math.max(8, Math.min(contextMenu.x, viewport.width - 220)), top: Math.max(8, Math.min(contextMenu.y, viewport.height - 330)) }}
           onPointerDown={(event) => event.stopPropagation()}
         >
           <div className="truncate border-b border-border/70 px-3 py-2 text-xs font-semibold">
@@ -316,16 +398,24 @@ const DrawingLayer = ({
           </div>
           {[
             [t("priceChart.drawings.actions.duplicate"), () => onDuplicate(contextMenu.drawing.id)],
-            [contextMenu.drawing.state?.locked ? t("priceChart.drawings.actions.unlock") : t("priceChart.drawings.actions.lock"), () => onUpdate(contextMenu.drawing.id, { state: { ...contextMenu.drawing.state, locked: !contextMenu.drawing.state?.locked } })],
-            [t("priceChart.drawings.actions.front"), () => onReorder(contextMenu.drawing.id, "front")],
-            [t("priceChart.drawings.actions.back"), () => onReorder(contextMenu.drawing.id, "back")],
-            [t("priceChart.drawings.actions.onlyTimeframe"), () => onUpdate(contextMenu.drawing.id, { timeframeScope: { mode: "single", timeframe: currentTimeframe } })],
-            [t("priceChart.drawings.actions.allTimeframes"), () => onUpdate(contextMenu.drawing.id, { timeframeScope: { mode: "all", timeframe: null } })],
-            [t("priceChart.drawings.actions.hide"), () => onUpdate(contextMenu.drawing.id, { state: { ...contextMenu.drawing.state, hidden: true } })],
+            [t("priceChart.drawings.actions.copyStyle"), () => onCopyStyle(contextMenu.drawing.id)],
+            ...(hasCopiedStyle && !drawingIsReadOnly(contextMenu.drawing, currentUserId)
+              ? [[t("priceChart.drawings.actions.pasteStyle"), () => onPasteStyle(contextMenu.drawing.id)]]
+              : []),
+            ...(!drawingIsReadOnly(contextMenu.drawing, currentUserId) ? [
+              [contextMenu.drawing.state?.locked ? t("priceChart.drawings.actions.unlock") : t("priceChart.drawings.actions.lock"), () => onUpdate(contextMenu.drawing.id, { state: { ...contextMenu.drawing.state, locked: !contextMenu.drawing.state?.locked } })],
+              [t("priceChart.drawings.actions.front"), () => onReorder(contextMenu.drawing.id, "front")],
+              [t("priceChart.drawings.actions.back"), () => onReorder(contextMenu.drawing.id, "back")],
+              [t("priceChart.drawings.actions.onlyTimeframe"), () => onUpdate(contextMenu.drawing.id, { timeframeScope: { mode: "single", timeframe: currentTimeframe } })],
+              [t("priceChart.drawings.actions.allTimeframes"), () => onUpdate(contextMenu.drawing.id, { timeframeScope: { mode: "all", timeframe: null } })],
+            ] : []),
+            [t("priceChart.drawings.actions.hide"), () => onSetHidden(contextMenu.drawing.id, true)],
           ].map(([label, action]) => (
             <button key={label} type="button" onClick={() => { action(); setContextMenu(null); }} className="block w-full px-3 py-2 text-left text-xs hover:bg-accent">{label}</button>
           ))}
-          <button type="button" onClick={() => { onRemove(contextMenu.drawing.id); setContextMenu(null); }} className="block w-full border-t border-border/70 px-3 py-2 text-left text-xs text-rose-400 hover:bg-rose-500/10">{t("common.actions.delete")}</button>
+          {!drawingIsReadOnly(contextMenu.drawing, currentUserId) ? (
+            <button type="button" onClick={() => { onRemove(contextMenu.drawing.id); setContextMenu(null); }} className="block w-full border-t border-border/70 px-3 py-2 text-left text-xs text-rose-400 hover:bg-rose-500/10">{t("common.actions.delete")}</button>
+          ) : null}
         </div>
       ) : null}
     </div>

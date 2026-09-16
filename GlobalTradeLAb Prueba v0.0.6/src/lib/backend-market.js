@@ -384,6 +384,7 @@ export const getMarketIndicatorsFromBackend = async ({
 export const getMarketDrawingsFromBackend = async ({
   symbol,
   timeframe = DEFAULT_TIMEFRAME,
+  classId = null,
   accessToken = getCachedSupabaseAccessToken(),
 }) => {
   const backendSymbol = getBackendSymbol(symbol) ?? (typeof symbol === "string" ? symbol.trim() : "");
@@ -393,10 +394,11 @@ export const getMarketDrawingsFromBackend = async ({
   }
 
   const backendTimeframe = toBackendTimeframe(timeframe);
+  const classQuery = classId ? `&classId=${encodeURIComponent(classId)}` : "";
   const response = await fetch(
     `${getMarketBackendUrl("/api/market/drawings")}?symbol=${encodeURIComponent(
       backendSymbol
-    )}&timeframe=${encodeURIComponent(backendTimeframe)}`,
+    )}&timeframe=${encodeURIComponent(backendTimeframe)}${classQuery}`,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -420,6 +422,7 @@ export const getMarketDrawingsFromBackend = async ({
 export const saveMarketDrawingsToBackend = async ({
   symbol,
   timeframe = DEFAULT_TIMEFRAME,
+  classId = null,
   objects = [],
   accessToken = getCachedSupabaseAccessToken(),
 }) => {
@@ -430,12 +433,13 @@ export const saveMarketDrawingsToBackend = async ({
   }
 
   const backendTimeframe = toBackendTimeframe(timeframe);
+  const classQuery = classId ? `&classId=${encodeURIComponent(classId)}` : "";
   const isClearing = !Array.isArray(objects) || objects.length === 0;
   const response = await fetch(
     isClearing
       ? `${getMarketBackendUrl("/api/market/drawings")}?symbol=${encodeURIComponent(
           backendSymbol
-        )}&timeframe=${encodeURIComponent(backendTimeframe)}`
+        )}&timeframe=${encodeURIComponent(backendTimeframe)}${classQuery}`
       : `${getMarketBackendUrl("/api/market/drawings")}`,
     {
       method: isClearing ? "DELETE" : "PUT",
@@ -448,6 +452,7 @@ export const saveMarketDrawingsToBackend = async ({
         : JSON.stringify({
             symbol: backendSymbol,
             timeframe: backendTimeframe,
+            classId,
             objects,
           }),
     }

@@ -94,11 +94,16 @@ export const pointToAnchor = ({ point, chart, series, data, knownTime = null, kn
   if (!point || !chart || !series) return null;
   const price = Number(series.coordinateToPrice(point.y));
   const hasKnownLogical = knownLogical !== null && knownLogical !== undefined && knownLogical !== "";
-  const logicalValue = hasKnownLogical && Number.isFinite(Number(knownLogical))
-    ? Number(knownLogical)
-    : Number(chart.timeScale().coordinateToLogical(point.x));
+  const coordinateLogical = hasKnownLogical
+    ? knownLogical
+    : chart.timeScale().coordinateToLogical(point.x);
+  const logicalValue = coordinateLogical !== null && coordinateLogical !== undefined && Number.isFinite(Number(coordinateLogical))
+    ? Number(coordinateLogical)
+    : null;
   const coordinateTime = knownTime ?? chart.timeScale().coordinateToTime(point.x);
-  const numericCoordinateTime = Number(coordinateTime);
+  const numericCoordinateTime = coordinateTime !== null && coordinateTime !== undefined && coordinateTime !== ""
+    ? Number(coordinateTime)
+    : null;
   const time = Number.isFinite(numericCoordinateTime)
     ? numericCoordinateTime
     : timeForLogical(data, logicalValue);
@@ -109,7 +114,9 @@ export const pointToAnchor = ({ point, chart, series, data, knownTime = null, kn
     time,
     price,
     logical: Number.isFinite(logicalValue) ? logicalValue : findLogicalForTime(data, time),
-    candleIndex: Number.isFinite(logicalValue) ? Math.round(logicalValue) : null,
+    candleIndex: Number.isFinite(logicalValue) && logicalValue >= 0 && logicalValue <= (Array.isArray(data) ? data.length - 1 : -1)
+      ? Math.round(logicalValue)
+      : null,
     snapSource: null,
   };
 };
@@ -122,6 +129,10 @@ export const applyMagnetToAnchor = ({ anchor, point, data, series, mode = "off",
   }
 
   const logical = Number.isFinite(anchor.logical) ? anchor.logical : findLogicalForTime(data, anchor.time);
+  const lastCandleIndex = data.length - 1;
+  if (!Number.isFinite(logical) || logical < 0 || logical > lastCandleIndex) {
+    return anchor;
+  }
   const index = Math.min(data.length - 1, Math.max(0, Math.round(logical)));
   const candle = data[index];
   if (!candle) return anchor;

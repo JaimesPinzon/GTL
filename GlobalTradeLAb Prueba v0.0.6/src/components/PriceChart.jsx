@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { BellPlus, Minus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
+import { BellPlus, Check, Minus, ShoppingCart, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useTradingWorkspace } from "@/features/classes/hooks/useTradingWorkspace";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import ChartHeader from "./PriceChart/ChartHeader";
 import ChartToolSidebar from "./ChartToolSidebar";
 import { useChartData } from "./PriceChart/hooks/useChartData";
@@ -11,6 +19,26 @@ import { useMainChart } from "./PriceChart/hooks/useMainChart";
 import { useMacdChart } from "./PriceChart/hooks/useMacdChart";
 import { useTranslation } from "react-i18next";
 import DrawingLayer from "./PriceChart/drawings/DrawingLayer";
+import { getDrawingLabelKey } from "./PriceChart/drawings/drawingRegistry";
+
+const getCreationHintKey = (tool, pointCount) => {
+  if (tool === "polyline") return "priceChart.drawings.creation.polyline";
+  if (["longPosition", "shortPosition"].includes(tool)) {
+    return [
+      "priceChart.drawings.creation.positionEntry",
+      "priceChart.drawings.creation.positionStop",
+      "priceChart.drawings.creation.positionTarget",
+    ][Math.min(pointCount, 2)];
+  }
+  if (tool === "fibonacciExtension") {
+    return [
+      "priceChart.drawings.creation.impulseStart",
+      "priceChart.drawings.creation.impulseEnd",
+      "priceChart.drawings.creation.retracementEnd",
+    ][Math.min(pointCount, 2)];
+  }
+  return "priceChart.drawings.creation.clickToPlace";
+};
 
 const PriceChart = ({
   chartType,
@@ -36,9 +64,12 @@ const PriceChart = ({
   const syncMacdVisibilityRef = useRef(() => {});
   const [magnetMode, setMagnetMode] = useState("weak");
   const [keepToolActive, setKeepToolActive] = useState(false);
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
 
   const {
     selectedSymbol,
+    activeClass,
+    activeClassId,
     initialSymbols,
     marketData = {},
     preferencesState,
@@ -52,6 +83,8 @@ const PriceChart = ({
   const chartTimezone = preferredTimezone;
   const chartLocale = user?.language === "en" ? "en-US" : "es-CO";
   const cacheScopeKey = user?.id || user?.user_id || user?.email || "anonymous";
+  const currentUserId = user?.id || user?.user_id || null;
+  const canManageEducationalDrawings = user?.role === "teacher" || ["teacher", "monitor"].includes(activeClass?.membershipRole);
 
   const {
     formattedSeriesData,
@@ -88,10 +121,11 @@ const PriceChart = ({
     activeTool,
     chartContainerRef,
     chartRef,
+    classId: activeClassId,
     currentTimeframe,
     keepToolActive,
     magnetMode,
-    ownerId: user?.id || user?.user_id || null,
+    ownerId: currentUserId,
     renderedDataRef,
     selectedSymbol,
     seriesRef,
@@ -114,10 +148,13 @@ const PriceChart = ({
   }, [drawings.handleCrosshairMove, overlay.handleCrosshairMove]);
 
   const requestClearDrawings = useCallback(() => {
-    if (window.confirm(t("priceChart.drawings.clearConfirm"))) {
-      drawings.clearDrawingObjects();
-    }
-  }, [drawings.clearDrawingObjects, t]);
+    setIsClearDialogOpen(true);
+  }, []);
+
+  const confirmClearDrawings = useCallback(() => {
+    drawings.clearDrawingObjects();
+    setIsClearDialogOpen(false);
+  }, [drawings.clearDrawingObjects]);
 
   const { chartRevision } = useMainChart({
     chartAppearance,
@@ -148,6 +185,8 @@ const PriceChart = ({
     onDrawingWorkspaceChange?.({
       symbol: selectedSymbol,
       timeframe: currentTimeframe,
+      classId: activeClassId,
+      currentUserId,
       drawings: drawings.drawingObjects,
       selectedDrawingId: drawings.selectedDrawingId,
       persistenceState: drawings.persistenceState,
@@ -157,7 +196,10 @@ const PriceChart = ({
         update: drawings.updateDrawing,
         remove: drawings.removeDrawing,
         duplicate: drawings.duplicateDrawing,
+        copyStyle: drawings.copyDrawingStyle,
+        pasteStyle: drawings.pasteDrawingStyle,
         reorder: drawings.reorderDrawing,
+        setHidden: drawings.setDrawingHidden,
         clear: drawings.clearDrawingObjects,
         undo: drawings.undo,
         redo: drawings.redo,
@@ -165,15 +207,20 @@ const PriceChart = ({
     });
   }, [
     currentTimeframe,
+    activeClassId,
+    currentUserId,
     drawings.clearDrawingObjects,
+    drawings.copyDrawingStyle,
     drawings.drawingObjects,
     drawings.duplicateDrawing,
     drawings.persistenceError,
     drawings.persistenceState,
+    drawings.pasteDrawingStyle,
     drawings.redo,
     drawings.removeDrawing,
     drawings.reorderDrawing,
     drawings.selectDrawing,
+    drawings.setDrawingHidden,
     drawings.selectedDrawingId,
     drawings.undo,
     drawings.updateDrawing,
@@ -251,8 +298,6 @@ const PriceChart = ({
         priceChangePercent={priceChangePercent}
         currency={currency}
         chartAppearance={chartAppearance}
-        clearDrawings={requestClearDrawings}
-        hasDrawings={drawings.hasDrawings}
       />
 
       <div
@@ -285,12 +330,20 @@ const PriceChart = ({
           chartRevision={chartRevision}
           currency={currency}
           currentTimeframe={currentTimeframe}
+          activeClassId={activeClassId}
+          canManageEducationalDrawings={canManageEducationalDrawings}
+          currentUserId={currentUserId}
           drawings={drawings.visibleDrawings}
+          hasCopiedStyle={drawings.hasCopiedStyle}
           onBeginDrag={drawings.beginDrag}
+          onCopyStyle={drawings.copyDrawingStyle}
           onDuplicate={drawings.duplicateDrawing}
+          onPasteStyle={drawings.pasteDrawingStyle}
           onRemove={drawings.removeDrawing}
           onReorder={drawings.reorderDrawing}
           onSelect={drawings.selectDrawing}
+          onSetHidden={drawings.setDrawingHidden}
+          onSetExplanationVisible={drawings.setDrawingExplanationVisible}
           onUpdate={drawings.updateDrawing}
           previewDrawing={drawings.previewDrawing}
           renderedDataRef={renderedDataRef}
@@ -298,6 +351,35 @@ const PriceChart = ({
           selectedDrawingId={drawings.selectedDrawingId}
           seriesRef={seriesRef}
         />
+
+        {activeTool ? (
+          <div className="app-chrome-strong pointer-events-auto absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border/80 px-3 py-2 text-xs shadow-xl">
+            <span className="font-semibold text-foreground">{t(getDrawingLabelKey(activeTool))}</span>
+            <span className="max-w-64 truncate text-muted-foreground">
+              {t(getCreationHintKey(activeTool, drawings.tempDrawingPoints.length))}
+              {" · "}
+              {t("priceChart.drawings.creation.points", { count: drawings.tempDrawingPoints.length })}
+            </span>
+            {activeTool === "polyline" && drawings.tempDrawingPoints.length >= 2 ? (
+              <button
+                type="button"
+                onClick={drawings.finishPolyline}
+                className="flex h-7 items-center gap-1 rounded-md bg-primary px-2 font-semibold text-primary-foreground"
+              >
+                <Check className="h-3.5 w-3.5" />
+                {t("priceChart.drawings.creation.finish")}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => drawings.cancelCurrentDrawing()}
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+              {t("common.actions.cancel")}
+            </button>
+          </div>
+        ) : null}
 
         {progressiveHistoryEnabled && isLoadingOlderHistory ? (
           <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border/80 bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-md">
@@ -400,6 +482,39 @@ const PriceChart = ({
       </div>
 
       {showMACD ? <div className="macd-chart-container mt-1 h-[120px] shrink-0" ref={macdChartContainerRef} /> : null}
+
+      <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
+        <DialogContent className="app-chrome-strong overflow-hidden border border-primary/20 bg-background/95 p-0 shadow-[0_28px_90px_rgba(0,0,0,0.65)] backdrop-blur-xl sm:max-w-md">
+          <div className="h-1 bg-gradient-to-r from-primary/20 via-primary to-cyan-400/30" />
+          <div className="p-6">
+            <DialogHeader className="items-center text-center sm:text-center">
+              <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-400/25 bg-rose-500/10 text-rose-400 shadow-[0_10px_30px_rgba(244,63,94,0.12)]">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <DialogTitle>{t("priceChart.drawings.clearDialogTitle")}</DialogTitle>
+              <DialogDescription className="max-w-sm leading-6">
+                {t("priceChart.drawings.clearDialogDescription", { symbol: selectedSymbol })}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="mt-6 grid grid-cols-2 gap-3 sm:grid sm:grid-cols-2 sm:space-x-0">
+              <button
+                type="button"
+                onClick={() => setIsClearDialogOpen(false)}
+                className="h-10 rounded-xl border border-border/80 bg-secondary/50 px-4 text-sm font-semibold text-foreground transition hover:bg-accent"
+              >
+                {t("common.actions.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={confirmClearDrawings}
+                className="h-10 rounded-xl border border-rose-400/30 bg-rose-500/15 px-4 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/25"
+              >
+                {t("priceChart.drawings.clearDialogConfirm")}
+              </button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

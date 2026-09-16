@@ -7,6 +7,7 @@ import {
   cloneDrawing,
   cloneDrawings,
   createDrawingId,
+  drawingIsReadOnly,
   normalizeDrawing,
 } from "../drawings/drawingDefaults";
 
@@ -19,7 +20,7 @@ const updateTimestamp = (drawing) => ({
   updatedAt: new Date().toISOString(),
 });
 
-export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
+export function useDrawings({ selectedSymbol, currentTimeframe, ownerId, classId = null }) {
   const [drawingObjects, setDrawingObjects] = useState([]);
   const [selectedDrawingId, setSelectedDrawingId] = useState(null);
   const [persistenceState, setPersistenceState] = useState("loading");
@@ -32,8 +33,10 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
   const loadSucceededKeyRef = useRef(null);
   const transactionRef = useRef(null);
   const isTransactionActiveRef = useRef(false);
+  const copiedStyleRef = useRef(null);
+  const [hasCopiedStyle, setHasCopiedStyle] = useState(false);
 
-  const persistenceKey = `${ownerId || "anonymous"}:${selectedSymbol || "none"}`;
+  const persistenceKey = `${ownerId || "anonymous"}:${classId || "personal"}:${selectedSymbol || "none"}`;
 
   useEffect(() => {
     drawingObjectsRef.current = drawingObjects;
@@ -74,6 +77,7 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
     getMarketDrawingsFromBackend({
       symbol: selectedSymbol,
       timeframe: PERSISTENCE_TIMEFRAME,
+      classId,
     })
       .then((objects) => {
         if (cancelled || activeKeyRef.current !== requestKey) return;
@@ -103,11 +107,12 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
         void saveMarketDrawingsToBackend({
           symbol: selectedSymbol,
           timeframe: PERSISTENCE_TIMEFRAME,
+          classId,
           objects: drawingObjectsRef.current,
         }).catch((error) => console.error("drawing flush error", error));
       }
     };
-  }, [ownerId, persistenceKey, selectedSymbol]);
+  }, [classId, ownerId, persistenceKey, selectedSymbol]);
 
   useEffect(() => {
     if (
@@ -124,6 +129,7 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
       saveMarketDrawingsToBackend({
         symbol: selectedSymbol,
         timeframe: PERSISTENCE_TIMEFRAME,
+        classId,
         objects: drawingObjects,
       })
         .then(() => {
@@ -140,7 +146,7 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
     }, 450);
 
     return () => window.clearTimeout(timeoutId);
-  }, [drawingObjects, ownerId, persistenceKey, selectedSymbol]);
+  }, [classId, drawingObjects, ownerId, persistenceKey, selectedSymbol]);
 
   const commitObjects = useCallback((producer, { recordHistory = true } = {}) => {
     setDrawingObjects((previous) => {
@@ -159,20 +165,71 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
   const updateDrawing = useCallback((drawingId, patchOrProducer, options) => {
     commitObjects((previous) => previous.map((drawing) => {
       if (drawing.id !== drawingId) return drawing;
+      if (drawingIsReadOnly(drawing, ownerId)) return drawing;
       const patch = typeof patchOrProducer === "function" ? patchOrProducer(drawing) : patchOrProducer;
       return updateTimestamp({ ...drawing, ...patch });
     }), options);
+  }, [commitObjects, ownerId]);
+
+  const setDrawingHidden = useCallback((drawingId, hidden) => {
+    commitObjects((previous) => previous.map((drawing) => drawing.id === drawingId
+      ? updateTimestamp({ ...drawing, state: { ...drawing.state, hidden: Boolean(hidden) } })
+      : drawing
+    ));
+    setSelectedDrawingId(drawingId);
   }, [commitObjects]);
+
+  const setDrawingExplanationVisible = useCallback((drawingId, visible) => {
+    commitObjects((previous) => previous.map((drawing) => drawing.id === drawingId
+      ? {
+          ...drawing,
+          education: { ...drawing.education, showExplanation: Boolean(visible) },
+        }
+      : drawing
+    ), { recordHistory: false });
+  }, [commitObjects]);
+
+  const copyDrawingStyle = useCallback((drawingId) => {
+    const drawing = drawingObjectsRef.current.find((item) => item.id === drawingId);
+    if (!drawing) return;
+    copiedStyleRef.current = cloneDrawing({
+      style: drawing.style,
+      fibonacci: drawing.fibonacci
+        ? {
+            labelMode: drawing.fibonacci.labelMode,
+            levels: drawing.fibonacci.levels,
+          }
+        : null,
+    });
+    setHasCopiedStyle(true);
+  }, []);
+
+  const pasteDrawingStyle = useCallback((drawingId) => {
+    const copied = copiedStyleRef.current;
+    if (!copied) return;
+    updateDrawing(drawingId, (drawing) => ({
+      style: { ...drawing.style, ...cloneDrawing(copied.style) },
+      fibonacci: drawing.fibonacci && copied.fibonacci
+        ? {
+            ...drawing.fibonacci,
+            labelMode: copied.fibonacci.labelMode,
+            levels: cloneDrawing(copied.fibonacci.levels),
+          }
+        : drawing.fibonacci,
+    }));
+  }, [updateDrawing]);
 
   const removeDrawing = useCallback((drawingId) => {
-    commitObjects((previous) => previous.filter((drawing) => drawing.id !== drawingId));
+    commitObjects((previous) => previous.filter((drawing) => (
+      drawing.id !== drawingId || drawingIsReadOnly(drawing, ownerId)
+    )));
     setSelectedDrawingId((selectedId) => selectedId === drawingId ? null : selectedId);
-  }, [commitObjects]);
+  }, [commitObjects, ownerId]);
 
   const clearDrawingObjects = useCallback(() => {
-    commitObjects([]);
+    commitObjects((previous) => previous.filter((drawing) => drawingIsReadOnly(drawing, ownerId)));
     setSelectedDrawingId(null);
-  }, [commitObjects]);
+  }, [commitObjects, ownerId]);
 
   const duplicateDrawing = useCallback((drawingId) => {
     let duplicateId = null;
@@ -192,6 +249,8 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
           candleIndex: Number.isFinite(anchor.candleIndex) ? anchor.candleIndex + 2 : anchor.candleIndex,
         })),
         state: { ...source.state, locked: false, hidden: false, selected: false },
+        ownership: { ...source.ownership, ownerId, visibility: "private", classId: null },
+        education: { ...source.education, readOnly: false },
         zIndex: Math.max(0, ...previous.map((drawing) => Number(drawing.zIndex) || 0)) + 1,
         version: 1,
         createdAt: now,
@@ -200,12 +259,13 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
       return [...previous, duplicate];
     });
     if (duplicateId) setSelectedDrawingId(duplicateId);
-  }, [commitObjects]);
+  }, [commitObjects, ownerId]);
 
   const reorderDrawing = useCallback((drawingId, direction) => {
     commitObjects((previous) => {
       const ordered = [...previous].sort((left, right) => (left.zIndex || 0) - (right.zIndex || 0));
       const index = ordered.findIndex((drawing) => drawing.id === drawingId);
+      if (index >= 0 && drawingIsReadOnly(ordered[index], ownerId)) return previous;
       const swapIndex = direction === "front" ? index + 1 : index - 1;
       if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return previous;
       const currentZ = ordered[index].zIndex;
@@ -213,7 +273,7 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
       ordered[swapIndex] = updateTimestamp({ ...ordered[swapIndex], zIndex: currentZ });
       return ordered;
     });
-  }, [commitObjects]);
+  }, [commitObjects, ownerId]);
 
   const beginTransaction = useCallback(() => {
     if (transactionRef.current) return;
@@ -287,9 +347,12 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
     cancelTransaction,
     clearDrawingObjects,
     commitTransaction,
+    copyDrawingStyle,
     drawingObjects,
     duplicateDrawing,
     historyVersion,
+    hasCopiedStyle,
+    pasteDrawingStyle,
     persistenceError,
     persistenceState,
     redo,
@@ -297,6 +360,8 @@ export function useDrawings({ selectedSymbol, currentTimeframe, ownerId }) {
     reorderDrawing,
     selectedDrawing,
     selectedDrawingId,
+    setDrawingHidden,
+    setDrawingExplanationVisible,
     setSelectedDrawingId,
     undo,
     updateDrawing,

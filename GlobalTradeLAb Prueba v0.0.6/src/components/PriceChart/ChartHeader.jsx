@@ -1,5 +1,4 @@
 import React from "react";
-import { Trash2 } from "lucide-react";
 import { formatCurrency } from "@/lib/market-data";
 
 const ChartHeader = ({
@@ -11,8 +10,6 @@ const ChartHeader = ({
   priceChangePercent,
   currency,
   chartAppearance,
-  clearDrawings,
-  hasDrawings,
 }) => {
   const safeCurrency = currency || "USD";
   const primaryValues = ohlc ?? {};
@@ -105,19 +102,6 @@ const ChartHeader = ({
           />
         </div>
       </div>
-
-      {hasDrawings ? (
-        <div className="mt-1 border-t border-border pt-1">
-          <button
-            type="button"
-            onClick={clearDrawings}
-            className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-rose-400/40 hover:text-rose-400"
-          >
-            <Trash2 className="mr-1 h-3.5 w-3.5" />
-            Limpiar dibujos
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 };
