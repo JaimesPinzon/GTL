@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Bitcoin, Briefcase, Landmark, Search, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowLeft, BarChart3, Bitcoin, Briefcase, Landmark, Search, TrendingDown, TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,6 +13,10 @@ import {
   SNAPSHOT_REFRESH_INTERVAL_MS,
 } from "@/lib/market-snapshot";
 import { motion } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { useClassContext } from "@/features/classes/context/ClassContext";
+import { useClassMarketContext } from "@/features/classes/context/ClassMarketContext";
+import { CLASS_CONTEXT_PATHS, buildClassRoute } from "@/lib/routes";
 
 const SymbolIcon = ({ type }) => {
   if (type === "stock") {
@@ -31,9 +36,15 @@ const SymbolIcon = ({ type }) => {
 
 const TeacherMarkets = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { activeClassId } = useClassContext() || {};
+  const { setSelectedSymbol } = useClassMarketContext() || {};
   const [symbols, setSymbols] = useState([]);
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
+  const requestedSymbol = String(searchParams.get("symbol") || "").trim().toUpperCase();
+  const returnTo = searchParams.get("returnTo");
   const typeLabels = useMemo(
     () => ({
       crypto: t("marketSearch.typeLabels.crypto"),
@@ -121,6 +132,23 @@ const TeacherMarkets = () => {
     };
   }, [t]);
 
+  useEffect(() => {
+    if (requestedSymbol) {
+      setQuery(requestedSymbol);
+      setActiveFilter("all");
+    }
+  }, [requestedSymbol]);
+
+  const openChart = useCallback((symbolId) => {
+    if (!activeClassId || !symbolId) return;
+    setSelectedSymbol?.(symbolId);
+    const query = new URLSearchParams({ symbol: symbolId });
+    const newsId = searchParams.get("news");
+    if (newsId) query.set("news", newsId);
+    if (returnTo) query.set("returnTo", returnTo);
+    navigate(`${buildClassRoute(activeClassId, CLASS_CONTEXT_PATHS.dashboard)}?${query.toString()}`);
+  }, [activeClassId, navigate, returnTo, searchParams, setSelectedSymbol]);
+
   const filteredSymbols = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -147,6 +175,30 @@ const TeacherMarkets = () => {
       transition={{ duration: 0.5 }}
       className="mx-auto w-full max-w-7xl"
     >
+      {requestedSymbol ? (
+        <div className="mb-5 flex flex-col justify-between gap-3 rounded-2xl border border-primary/25 bg-primary/8 p-4 sm:flex-row sm:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">
+              {t("news.symbol.eyebrow")}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("news.symbol.marketContext", { symbol: requestedSymbol })}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {returnTo ? (
+              <Button variant="ghost" className="gap-2" onClick={() => navigate(returnTo)}>
+                <ArrowLeft className="h-4 w-4" />
+                {t("news.article.back")}
+              </Button>
+            ) : null}
+            <Button className="gap-2" onClick={() => openChart(requestedSymbol)}>
+              <BarChart3 className="h-4 w-4" />
+              {t("news.symbol.openChart")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <Card className="glass-card overflow-hidden rounded-[28px] border-border/60">
         <CardHeader className="border-b border-border/50">
           <CardTitle className="text-2xl">{t("teacher.markets.title")}</CardTitle>
@@ -199,11 +251,12 @@ const TeacherMarkets = () => {
                     <TableHead>{t("marketSearch.columns.type")}</TableHead>
                     <TableHead>{t("marketSearch.columns.currency")}</TableHead>
                     <TableHead>{t("marketSearch.columns.marketStatus", { defaultValue: "Mercado" })}</TableHead>
+                    <TableHead className="text-right">{t("news.actions.market")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredSymbols.map((symbol) => (
-                    <TableRow key={symbol.id}>
+                    <TableRow key={symbol.id} className={requestedSymbol === symbol.id ? "bg-primary/10 ring-1 ring-inset ring-primary/25" : ""}>
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <SymbolIcon type={symbol.type} />
@@ -225,6 +278,12 @@ const TeacherMarkets = () => {
                       <TableCell>{typeLabels[symbol.type] || symbol.type}</TableCell>
                       <TableCell>{symbol.currency}</TableCell>
                       <TableCell>{getMarketStatusLabel(symbol.marketStatus)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="ghost" className="gap-2" onClick={() => openChart(symbol.id)}>
+                          <BarChart3 className="h-4 w-4" />
+                          {t("news.symbol.openChart")}
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

@@ -14,6 +14,7 @@ export function useMainChart({
   currentTimeframe,
   formattedSeriesData,
   isFullScreen,
+  newsMarkers,
   onChartClick,
   onCrosshairMove,
   onLoadOlderHistory,
@@ -389,6 +390,11 @@ export function useMainChart({
       hasAutoFocusedRef.current = true;
     }
   }, [chartAppearance, chartLocale, chartTimezone, chartType, currency, currentTimeframe, formattedSeriesData, isFullScreen, oldestRenderedTime, processedData, renderedDataRef, showMACD]);
+
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    seriesRef.current.setMarkers?.(newsMarkers || []);
+  }, [chartRevision, formattedSeriesData, newsMarkers, seriesRef]);
 
   useEffect(() => {
     if (!chartRef.current) {

@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   LayoutDashboard,
   LayoutGrid,
+  Newspaper,
   Search,
   ShieldCheck,
   Users,
@@ -19,7 +20,8 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { useTradingContext } from "@/contexts/TradingContext";
 import { useClassContext } from "@/features/classes/context/ClassContext";
-import { CLASS_CONTEXT_PATHS, GLOBAL_APP_PATHS, buildClassRoute } from "@/lib/routes";
+import { CLASS_CONTEXT_PATHS, GLOBAL_APP_PATHS, buildClassRoute, buildNewsArticleRoute } from "@/lib/routes";
+import { fetchClassNewsShares } from "@/lib/news-api";
 import { formatCurrency } from "@/lib/market-data";
 import {
   autoAssignRoomGroups,
@@ -96,6 +98,7 @@ const ClassOverviewPage = () => {
   const activitiesSectionRef = useRef(null);
   const [activities, setActivities] = useState([]);
   const [roomGrades, setRoomGrades] = useState([]);
+  const [sharedNews, setSharedNews] = useState([]);
   const [activityQuery, setActivityQuery] = useState("");
   const [activityFilter, setActivityFilter] = useState("all");
   const [isGroupsModalOpen, setIsGroupsModalOpen] = useState(false);
@@ -132,14 +135,16 @@ const ClassOverviewPage = () => {
         if (isMounted) {
           setActivities([]);
           setRoomGrades([]);
+          setSharedNews([]);
         }
         return;
       }
 
       try {
-        const [roomActivities, gradebook] = await Promise.all([
+        const [roomActivities, gradebook, newsShares] = await Promise.all([
           fetchRoomActivities(activeClass.id, user?.role || "student"),
           fetchRoomGradebook(activeClass.id),
+          fetchClassNewsShares(activeClass.id),
         ]);
 
         if (!isMounted) {
@@ -148,6 +153,7 @@ const ClassOverviewPage = () => {
 
         setActivities(roomActivities);
         setRoomGrades(gradebook);
+        setSharedNews(newsShares);
       } catch (error) {
         console.error("loadClassOverview error", error);
         if (isMounted) {
@@ -180,6 +186,8 @@ const ClassOverviewPage = () => {
       type: activity.activityType,
       isGradable: activity.isGradable,
       state: activity.state,
+      sourceNewsId: activity.sourceNewsId || activity.sourceNewsExternalId,
+      sourceNewsSnapshot: activity.sourceNewsSnapshot,
     }));
   }, [activities, emptyActivities, t]);
 
@@ -646,6 +654,22 @@ const ClassOverviewPage = () => {
           </CardContent>
         </Card>
 
+        {sharedNews.length ? (
+          <Card className="glass-card overflow-hidden">
+            <CardHeader className="border-b border-white/8 bg-white/[0.02] pb-5">
+              <CardTitle className="flex items-center gap-3 text-2xl"><Newspaper className="h-6 w-6 text-primary" />{t("classes.sharedNews.title")}</CardTitle>
+              <p className="mt-2 text-sm text-muted-foreground">{t("classes.sharedNews.description")}</p>
+            </CardHeader>
+            <CardContent className="grid gap-4 p-5 md:grid-cols-2">
+              {sharedNews.map((share) => {
+                const snapshot = share.news_snapshot || {};
+                const newsId = share.news_id || share.external_news_id;
+                return <button key={share.id} type="button" onClick={() => navigate(buildNewsArticleRoute(newsId))} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 text-left transition hover:border-primary/30 hover:bg-primary/5"><p className="text-xs uppercase tracking-[0.16em] text-primary">{snapshot.source || t("classes.sharedNews.label")}</p><h3 className="mt-2 font-semibold text-white">{snapshot.title}</h3>{share.note ? <p className="mt-2 text-sm leading-6 text-slate-400">{share.note}</p> : null}</button>;
+              })}
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card ref={activitiesSectionRef} className="glass-card overflow-hidden">
           <CardHeader className="border-b border-white/8 bg-white/[0.02] pb-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -717,6 +741,7 @@ const ClassOverviewPage = () => {
                     <div>
                       <h3 className="text-lg font-semibold text-white">{activity.title}</h3>
                       <p className="mt-2 text-sm leading-6 text-slate-400">{activity.description}</p>
+                      {activity.sourceNewsId ? <Button variant="link" className="mt-2 h-auto p-0 text-primary" onClick={() => navigate(buildNewsArticleRoute(activity.sourceNewsId))}>{t("classes.sharedNews.openSource")}</Button> : null}
                     </div>
                     {activity.state ? (
                       <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-slate-300">

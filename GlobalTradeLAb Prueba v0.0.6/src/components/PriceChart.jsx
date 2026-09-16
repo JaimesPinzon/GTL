@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BellPlus, Check, Minus, ShoppingCart, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useTradingWorkspace } from "@/features/classes/hooks/useTradingWorkspace";
 import {
@@ -20,6 +20,9 @@ import { useMacdChart } from "./PriceChart/hooks/useMacdChart";
 import { useTranslation } from "react-i18next";
 import DrawingLayer from "./PriceChart/drawings/DrawingLayer";
 import { getDrawingLabelKey } from "./PriceChart/drawings/drawingRegistry";
+import { useSearchParams } from "react-router-dom";
+import { fetchNews } from "@/lib/news-api";
+import { buildNewsChartMarkers } from "@/lib/news-chart-markers";
 
 const getCreationHintKey = (tool, pointCount) => {
   if (tool === "polyline") return "priceChart.drawings.creation.polyline";
@@ -56,6 +59,7 @@ const PriceChart = ({
   showMACD,
 }) => {
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
   const chartContainerRef = useRef(null);
   const macdChartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -65,6 +69,7 @@ const PriceChart = ({
   const [magnetMode, setMagnetMode] = useState("weak");
   const [keepToolActive, setKeepToolActive] = useState(false);
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [symbolNews, setSymbolNews] = useState([]);
 
   const {
     selectedSymbol,
@@ -85,6 +90,7 @@ const PriceChart = ({
   const cacheScopeKey = user?.id || user?.user_id || user?.email || "anonymous";
   const currentUserId = user?.id || user?.user_id || null;
   const canManageEducationalDrawings = user?.role === "teacher" || ["teacher", "monitor"].includes(activeClass?.membershipRole);
+  const focusedNewsId = searchParams.get("news");
 
   const {
     formattedSeriesData,
@@ -116,6 +122,20 @@ const PriceChart = ({
     showMACD,
     timeframe: currentTimeframe,
   });
+
+  useEffect(() => {
+    let mounted = true;
+    if (!selectedSymbol) {
+      setSymbolNews([]);
+      return undefined;
+    }
+    fetchNews({ symbol: selectedSymbol, sort: "latest", limit: 40 })
+      .then((result) => { if (mounted) setSymbolNews(result.articles || []); })
+      .catch(() => { if (mounted) setSymbolNews([]); });
+    return () => { mounted = false; };
+  }, [selectedSymbol]);
+
+  const newsMarkers = useMemo(() => buildNewsChartMarkers(symbolNews, formattedSeriesData, focusedNewsId), [focusedNewsId, formattedSeriesData, symbolNews]);
 
   const drawings = useDrawingTools({
     activeTool,
@@ -167,6 +187,7 @@ const PriceChart = ({
     currentTimeframe,
     formattedSeriesData,
     isFullScreen,
+    newsMarkers,
     onChartClick: drawings.handleChartClick,
     onCrosshairMove: handleChartCrosshairMove,
     onRegisterActions,
@@ -322,6 +343,8 @@ const PriceChart = ({
           ref={chartContainerRef}
           style={{ height: "100%" }}
         />
+
+        {newsMarkers.length ? <div className="pointer-events-none absolute right-3 top-3 z-20 rounded-full border border-sky-400/25 bg-background/90 px-3 py-1 text-[11px] font-medium text-sky-300 shadow-md">{t("priceChart.newsMarkers.count", { count: newsMarkers.length })}</div> : null}
 
         <DrawingLayer
           activeTool={activeTool}

@@ -20,6 +20,8 @@ const Register = lazy(() => import("@/pages/Register"));
 const LearnPage = lazy(() => import("@/pages/LearnPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const HelpPage = lazy(() => import("@/pages/HelpPage"));
+const NewsPage = lazy(() => import("@/features/news/pages/NewsPage"));
+const NewsArticlePage = lazy(() => import("@/features/news/pages/NewsArticlePage"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const PublicSectionPage = lazy(() => import("@/pages/PublicSectionPage"));
 const ClassesPanel = lazy(() => import("@/components/ClassesPanel"));
@@ -368,6 +370,9 @@ function AppContent() {
                   </PageScroller>
                 }
               />
+              <Route path="news" element={<NewsPage />} />
+              <Route path="news/symbol/:symbol" element={<NewsPage />} />
+              <Route path="news/:newsId" element={<NewsArticlePage />} />
               <Route element={<ClassRouteGuard />}>
                 <Route
                   path="classes/:classId"
@@ -410,6 +415,7 @@ function AppContent() {
           <Route path="/markets" element={<Navigate to="/mercados" replace />} />
           <Route path="/classes" element={<Navigate to={GLOBAL_APP_PATHS.classes} replace />} />
           <Route path="/settings" element={<Navigate to={GLOBAL_APP_PATHS.settings} replace />} />
+          <Route path="/news" element={<Navigate to={GLOBAL_APP_PATHS.news} replace />} />
           <Route path="/help" element={<Navigate to={GLOBAL_APP_PATHS.support} replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -10,7 +10,9 @@ import React, {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useTradingContext } from "@/contexts/TradingContext";
-import { APP_HOME_PATH, buildClassHomeRoute, buildClassRoute } from "@/lib/routes";
+import { APP_HOME_PATH, CLASS_CONTEXT_PATHS, buildClassHomeRoute, buildClassRoute } from "@/lib/routes";
+import { ENABLED_MARKET_ASSETS } from "@/lib/market-assets";
+import { normalizeNewsSymbol, resolveNewsAssetAvailability } from "@/lib/news-navigation";
 
 const ACTIVE_CLASS_STORAGE_KEY = "gtl.active-class-id";
 const ClassContext = createContext(null);
@@ -144,6 +146,36 @@ export const ClassContextProvider = ({ children }) => {
     accessibleClasses.find((room) => room.id === activeRoomId) ||
     null;
 
+  const getAssetAvailability = useCallback(
+    (symbol, classId = resolvedActiveClass?.id || activeRoomId) => {
+      return resolveNewsAssetAvailability({
+        symbol,
+        classId,
+        classes: accessibleClasses,
+        assets: ENABLED_MARKET_ASSETS,
+      });
+    },
+    [accessibleClasses, activeRoomId, resolvedActiveClass]
+  );
+
+  const openAssetInClass = useCallback(
+    async (symbol, options = {}) => {
+      const classId = options.classId || resolvedActiveClass?.id || activeRoomId || null;
+      const availability = getAssetAvailability(symbol, classId);
+      if (!availability.available) return availability;
+
+      const normalizedSymbol = normalizeNewsSymbol(symbol);
+      const query = new URLSearchParams({ symbol: normalizedSymbol });
+      if (options.newsId) query.set("news", options.newsId);
+      if (options.returnTo) query.set("returnTo", options.returnTo);
+      const selected = await selectActiveClass(classId);
+      if (!selected) return { ...availability, available: false, reason: "class-forbidden" };
+      navigate(`${buildClassRoute(classId, CLASS_CONTEXT_PATHS.markets)}?${query.toString()}`);
+      return availability;
+    },
+    [activeRoomId, getAssetAvailability, navigate, resolvedActiveClass, selectActiveClass]
+  );
+
   const value = useMemo(
     () => ({
       accessibleClasses,
@@ -151,6 +183,9 @@ export const ClassContextProvider = ({ children }) => {
       activeClassId: resolvedActiveClass?.id || activeRoomId || null,
       hasActiveClass: Boolean(resolvedActiveClass?.id || activeRoomId),
       isHydratingClass,
+      getAssetAvailability,
+      isAssetAvailable: (symbol, classId) => getAssetAvailability(symbol, classId).available,
+      openAssetInClass,
       routeClassId: routeClassId || null,
       selectActiveClass,
       validateClassAccess,
@@ -159,6 +194,8 @@ export const ClassContextProvider = ({ children }) => {
       accessibleClasses,
       activeRoomId,
       isHydratingClass,
+      getAssetAvailability,
+      openAssetInClass,
       resolvedActiveClass,
       routeClassId,
       selectActiveClass,

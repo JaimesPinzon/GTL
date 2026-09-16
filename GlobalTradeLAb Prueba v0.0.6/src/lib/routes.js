@@ -6,6 +6,7 @@ export const LEGACY_APP_HOME_PATH = "/plataforma";
 export const GLOBAL_APP_PATHS = {
   classes: `${APP_ROOT_PATH}/classes`,
   learn: `${APP_ROOT_PATH}/learn`,
+  news: `${APP_ROOT_PATH}/news`,
   settings: `${APP_ROOT_PATH}/settings`,
   support: `${APP_ROOT_PATH}/support`,
 };
@@ -28,6 +29,9 @@ export const buildClassEditRoute = (classId) => `${APP_ROOT_PATH}/classes/${clas
 
 export const buildClassRoute = (classId, section = CLASS_CONTEXT_PATHS.dashboard) =>
   `${APP_ROOT_PATH}/classes/${classId}/${section}`;
+
+export const buildNewsArticleRoute = (newsId) => `${GLOBAL_APP_PATHS.news}/${encodeURIComponent(newsId)}`;
+export const buildNewsSymbolRoute = (symbol) => `${GLOBAL_APP_PATHS.news}/symbol/${encodeURIComponent(symbol)}`;
 
 export const normalizeHomePath = () => APP_HOME_PATH;
 

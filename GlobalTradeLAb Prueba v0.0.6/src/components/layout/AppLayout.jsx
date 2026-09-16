@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import { ClassContextProvider } from "@/features/classes/context/ClassContext";
 import { ClassMarketContextProvider } from "@/features/classes/context/ClassMarketContext";
+import { NewsProvider } from "@/features/news/context/NewsContext";
 
 const AppLayout = () => {
   const [isChartFullScreen, setIsChartFullScreen] = useState(false);
@@ -28,6 +29,7 @@ const AppLayout = () => {
   return (
     <ClassContextProvider>
       <ClassMarketContextProvider>
+        <NewsProvider>
         <div className={`flex h-screen w-full bg-background ${isChartFullScreen ? "pl-0" : "pl-[72px]"}`}>
           {isChartFullScreen ? null : <Sidebar />}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
@@ -37,6 +39,7 @@ const AppLayout = () => {
             </main>
           </div>
         </div>
+        </NewsProvider>
       </ClassMarketContextProvider>
     </ClassContextProvider>
   );

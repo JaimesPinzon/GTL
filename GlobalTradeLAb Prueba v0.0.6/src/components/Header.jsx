@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { Bell, DollarSign, LogOut, User } from "lucide-react";
+import { ArrowLeft, Bell, DollarSign, LogOut, User } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -33,6 +33,7 @@ const Header = () => {
   const routeRoomId = roomPathMatch?.[1] || null;
   const isInsideClassWorkspace = Boolean(roomPathMatch);
   const isFinancialLabWorkspace = /\/financial-lab(?:\/|$)/.test(location.pathname);
+  const returnToNews = new URLSearchParams(location.search).get("returnTo");
   const resolvedRoomId = routeRoomId || activeRoomId || null;
   const shouldShowContextBalance = Boolean(user) && isInsideClassWorkspace && !isFinancialLabWorkspace && Boolean(resolvedRoomId);
   const account = activeRoomAccount?.roomId === resolvedRoomId ? activeRoomAccount : null;
@@ -60,6 +61,14 @@ const Header = () => {
         </motion.div>
 
         <div className="flex items-center gap-3">
+          {returnToNews?.startsWith("/app/news") ? (
+            <Button variant="ghost" className="hidden gap-2 rounded-full border border-border/70 bg-secondary/55 lg:inline-flex" asChild>
+              <Link to={returnToNews}>
+                <ArrowLeft className="h-4 w-4" />
+                {t("news.article.back")}
+              </Link>
+            </Button>
+          ) : null}
           {shouldShowContextBalance ? (
             <div className="flex items-center rounded-full border border-border/70 bg-secondary/70 px-4 py-2.5 shadow-[inset_0_1px_0_hsla(var(--background)/0.12)]">
               <DollarSign className="mr-2 h-4 w-4 text-green-400" />

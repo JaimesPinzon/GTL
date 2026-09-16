@@ -6,6 +6,7 @@ import {
   GraduationCap,
   FlaskConical,
   Info,
+  Newspaper,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -69,6 +70,12 @@ const Sidebar = () => {
         icon: BookOpen,
         label: t("navigation.sidebar.learn"),
         path: GLOBAL_APP_PATHS.learn,
+      },
+      {
+        id: "news",
+        icon: Newspaper,
+        label: t("navigation.sidebar.news"),
+        path: GLOBAL_APP_PATHS.news,
       },
       {
         id: "settings",

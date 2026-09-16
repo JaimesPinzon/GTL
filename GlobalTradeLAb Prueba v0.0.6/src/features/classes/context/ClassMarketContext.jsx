@@ -35,6 +35,14 @@ export const ClassMarketContextProvider = ({ children }) => {
   const shouldLoadMarket = Boolean(activeClassId && hasActiveClass && isOperationalRoute);
 
   useEffect(() => {
+    if (!isOperationalRoute) return;
+    const requestedSymbol = new URLSearchParams(location.search).get("symbol")?.trim().toUpperCase();
+    if (requestedSymbol && SYMBOL_TEMPLATES.some((symbol) => symbol.id === requestedSymbol)) {
+      setSelectedSymbol(requestedSymbol);
+    }
+  }, [isOperationalRoute, location.search]);
+
+  useEffect(() => {
     if (!shouldLoadMarket) {
       setMarketData({});
       setQuoteData({});

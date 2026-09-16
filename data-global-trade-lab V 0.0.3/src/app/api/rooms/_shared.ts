@@ -73,3 +73,25 @@ export async function canManageRoom(userId: string, roomId: string) {
 
   return Boolean(membership);
 }
+
+export async function canAccessRoom(userId: string, roomId: string) {
+  const normalizedRoomId = normalizeText(roomId);
+  if (!userId || !normalizedRoomId) return false;
+
+  const { data: room, error: roomError } = await supabaseAdmin
+    .from("rooms")
+    .select("id, created_by")
+    .eq("id", normalizedRoomId)
+    .maybeSingle();
+  if (roomError || !room) return false;
+  if (room.created_by === userId) return true;
+
+  const { data: membership, error: membershipError } = await supabaseAdmin
+    .from("room_members")
+    .select("id")
+    .eq("room_id", normalizedRoomId)
+    .eq("user_id", userId)
+    .eq("state", "active")
+    .maybeSingle();
+  return !membershipError && Boolean(membership);
+}

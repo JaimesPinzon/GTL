@@ -335,6 +335,9 @@ const mapRoomActivity = (activity) => ({
   openAt: activity.open_at,
   closeAt: activity.close_at,
   createdAt: activity.created_at,
+  sourceNewsId: activity.source_news_id || null,
+  sourceNewsExternalId: activity.source_news_external_id || null,
+  sourceNewsSnapshot: activity.source_news_snapshot || null,
 });
 
 const parseAttachmentPayload = (value) => {
