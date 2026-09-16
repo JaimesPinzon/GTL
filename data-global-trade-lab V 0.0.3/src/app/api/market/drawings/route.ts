@@ -277,11 +277,11 @@ export async function PUT(request: Request) {
         return NextResponse.json({ ok: false, error: "symbol and timeframe are required" }, { status: 400, headers: corsHeaders });
     }
 
+    // Ownership is established by the authenticated request, never by a profile
+    // identifier supplied by the browser. Shared read-only objects are excluded so
+    // students cannot accidentally persist a teacher's drawing as their own.
     const sanitized = sanitizeDrawings(body?.objects)
-        .filter((drawing) => {
-            const ownerId = optionalText(asObject(drawing.ownership).ownerId, 80);
-            return !ownerId || ownerId === auth.user.id;
-        });
+        .filter((drawing) => !toBoolean(asObject(drawing.education).readOnly));
     const wantsClassSharing = Boolean(classId && sanitized.some(
         (drawing) => asObject(drawing.ownership).visibility === "class"
     ));

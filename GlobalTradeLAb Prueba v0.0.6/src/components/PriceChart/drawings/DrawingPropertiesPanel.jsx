@@ -12,6 +12,8 @@ import {
   GripHorizontal,
   Lock,
   PaintBucket,
+  Pin,
+  PinOff,
   Tags,
   Trash2,
   Unlock,
@@ -24,6 +26,24 @@ const BASIC_COLORS = [
   "#2962ff", "#06b6d4", "#22c55e", "#eab308", "#f97316", "#ef4444",
   "#a855f7", "#ec4899", "#f8fafc", "#94a3b8", "#334155", "#111827",
 ];
+
+const TOOLBAR_PLACEMENT_STORAGE_KEY = "gtl:drawing-properties-toolbar-placement";
+const DEFAULT_TOOLBAR_PLACEMENT = { x: 8, y: 8, pinned: false };
+
+const readToolbarPlacement = () => {
+  if (typeof window === "undefined") return DEFAULT_TOOLBAR_PLACEMENT;
+
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(TOOLBAR_PLACEMENT_STORAGE_KEY) || "null");
+    return {
+      x: Number.isFinite(Number(stored?.x)) ? Number(stored.x) : DEFAULT_TOOLBAR_PLACEMENT.x,
+      y: Number.isFinite(Number(stored?.y)) ? Number(stored.y) : DEFAULT_TOOLBAR_PLACEMENT.y,
+      pinned: Boolean(stored?.pinned),
+    };
+  } catch {
+    return DEFAULT_TOOLBAR_PLACEMENT;
+  }
+};
 
 const ColorPicker = ({ label, value, onChange, open, onToggle, fill = false }) => {
   const { t } = useTranslation();
@@ -124,9 +144,17 @@ const DrawingPropertiesPanel = ({
   const { t } = useTranslation();
   const panelRef = useRef(null);
   const dragRef = useRef(null);
-  const [position, setPosition] = useState({ x: 8, y: 8 });
+  const [placement, setPlacement] = useState(readToolbarPlacement);
   const [openColorPicker, setOpenColorPicker] = useState(null);
   const [educationOpen, setEducationOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TOOLBAR_PLACEMENT_STORAGE_KEY, JSON.stringify(placement));
+    } catch {
+      // The toolbar still works when storage is unavailable.
+    }
+  }, [placement]);
 
   useEffect(() => {
     setOpenColorPicker(null);
@@ -156,12 +184,16 @@ const DrawingPropertiesPanel = ({
   });
 
   const beginPanelDrag = (event) => {
-    if (event.button !== 0 || !panelRef.current?.parentElement) return;
+    if (placement.pinned || event.button !== 0 || !panelRef.current?.parentElement) return;
     event.preventDefault();
     event.stopPropagation();
     const panelRect = panelRef.current.getBoundingClientRect();
     const parentRect = panelRef.current.parentElement.getBoundingClientRect();
-    setPosition({ x: panelRect.left - parentRect.left, y: panelRect.top - parentRect.top });
+    setPlacement((current) => ({
+      ...current,
+      x: panelRect.left - parentRect.left,
+      y: panelRect.top - parentRect.top,
+    }));
     dragRef.current = {
       pointerId: event.pointerId,
       offsetX: event.clientX - panelRect.left,
@@ -178,12 +210,13 @@ const DrawingPropertiesPanel = ({
     event.preventDefault();
     event.stopPropagation();
     const parentRect = parent.getBoundingClientRect();
-    const maxX = Math.max(8, parentRect.width - 96);
+    const maxX = Math.max(8, parentRect.width - panel.offsetWidth - 8);
     const maxY = Math.max(8, parentRect.height - panel.offsetHeight - 8);
-    setPosition({
+    setPlacement((current) => ({
+      ...current,
       x: Math.min(maxX, Math.max(8, event.clientX - parentRect.left - drag.offsetX)),
       y: Math.min(maxY, Math.max(8, event.clientY - parentRect.top - drag.offsetY)),
-    });
+    }));
   };
 
   const endPanelDrag = (event) => {
@@ -194,7 +227,7 @@ const DrawingPropertiesPanel = ({
     dragRef.current = null;
   };
 
-  const panelStyle = { left: position.x, top: position.y };
+  const panelStyle = { left: placement.x, top: placement.y };
 
   return (
     <div
@@ -209,11 +242,30 @@ const DrawingPropertiesPanel = ({
         onPointerMove={movePanel}
         onPointerUp={endPanelDrag}
         onPointerCancel={endPanelDrag}
-        onDoubleClick={() => setPosition({ x: 8, y: 8 })}
-        className="flex h-8 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-primary active:cursor-grabbing"
-        title={t("priceChart.drawings.properties.moveToolbar")}
+        onDoubleClick={() => setPlacement((current) => ({ ...current, x: 8, y: 8 }))}
+        disabled={placement.pinned}
+        className="flex h-8 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-primary active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-35"
+        title={placement.pinned
+          ? t("priceChart.drawings.properties.toolbarPinned")
+          : t("priceChart.drawings.properties.moveToolbar")}
       >
         <GripHorizontal className="h-4 w-4" />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setPlacement((current) => ({ ...current, pinned: !current.pinned }))}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition ${
+          placement.pinned
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+        }`}
+        title={placement.pinned
+          ? t("priceChart.drawings.properties.unpinToolbar")
+          : t("priceChart.drawings.properties.pinToolbar")}
+        aria-pressed={placement.pinned}
+      >
+        {placement.pinned ? <Pin className="h-4 w-4" /> : <PinOff className="h-4 w-4" />}
       </button>
 
       <span className="max-w-32 truncate border-r border-border/70 px-2 text-xs font-semibold text-foreground">

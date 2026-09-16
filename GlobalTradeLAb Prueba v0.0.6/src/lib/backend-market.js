@@ -1,6 +1,6 @@
 import { getMarketBackendUrl } from "@/lib/env";
 import { DEFAULT_TIMEFRAME, HISTORY_CACHE_TTL_MS, toBackendTimeframe } from "@/lib/market-timeframes";
-import { getCachedSupabaseAccessToken } from "@/lib/supabase";
+import { getCachedSupabaseAccessToken, supabase } from "@/lib/supabase";
 import { ENABLED_MARKET_ASSETS } from "@/lib/market-assets";
 
 const BACKEND_SYMBOL_MAP = Object.fromEntries(
@@ -12,6 +12,20 @@ const MAX_MARKET_HISTORY_CACHE_ENTRIES = 30;
 const marketHistoryCache = new Map();
 const pendingMarketHistoryRequests = new Map();
 let hasLoadedPersistedHistoryCache = false;
+
+const resolveSupabaseAccessToken = async (accessToken = null) => {
+  if (accessToken) return accessToken;
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+
+  const sessionToken = data?.session?.access_token || getCachedSupabaseAccessToken();
+  if (!sessionToken) {
+    throw new Error("No authenticated Supabase session is available for drawing persistence");
+  }
+
+  return sessionToken;
+};
 
 export const getBackendSymbol = (symbol) => BACKEND_SYMBOL_MAP[symbol] ?? null;
 
@@ -385,13 +399,15 @@ export const getMarketDrawingsFromBackend = async ({
   symbol,
   timeframe = DEFAULT_TIMEFRAME,
   classId = null,
-  accessToken = getCachedSupabaseAccessToken(),
+  accessToken = null,
 }) => {
   const backendSymbol = getBackendSymbol(symbol) ?? (typeof symbol === "string" ? symbol.trim() : "");
 
-  if (!backendSymbol || !accessToken) {
+  if (!backendSymbol) {
     return [];
   }
+
+  const resolvedAccessToken = await resolveSupabaseAccessToken(accessToken);
 
   const backendTimeframe = toBackendTimeframe(timeframe);
   const classQuery = classId ? `&classId=${encodeURIComponent(classId)}` : "";
@@ -401,16 +417,16 @@ export const getMarketDrawingsFromBackend = async ({
     )}&timeframe=${encodeURIComponent(backendTimeframe)}${classQuery}`,
     {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${resolvedAccessToken}`,
       },
     }
   );
 
-  if (!response.ok) {
-    throw new Error(`Backend drawings request failed with status ${response.status}`);
-  }
+  const payload = await response.json().catch(() => ({}));
 
-  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || `Backend drawings request failed with status ${response.status}`);
+  }
 
   if (!payload.ok) {
     throw new Error(payload.error || "Market drawings backend returned an error");
@@ -424,13 +440,15 @@ export const saveMarketDrawingsToBackend = async ({
   timeframe = DEFAULT_TIMEFRAME,
   classId = null,
   objects = [],
-  accessToken = getCachedSupabaseAccessToken(),
+  accessToken = null,
 }) => {
   const backendSymbol = getBackendSymbol(symbol) ?? (typeof symbol === "string" ? symbol.trim() : "");
 
-  if (!backendSymbol || !accessToken) {
+  if (!backendSymbol) {
     return null;
   }
+
+  const resolvedAccessToken = await resolveSupabaseAccessToken(accessToken);
 
   const backendTimeframe = toBackendTimeframe(timeframe);
   const classQuery = classId ? `&classId=${encodeURIComponent(classId)}` : "";
@@ -445,7 +463,7 @@ export const saveMarketDrawingsToBackend = async ({
       method: isClearing ? "DELETE" : "PUT",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${resolvedAccessToken}`,
       },
       body: isClearing
         ? undefined
@@ -458,11 +476,11 @@ export const saveMarketDrawingsToBackend = async ({
     }
   );
 
-  if (!response.ok) {
-    throw new Error(`Backend drawings save failed with status ${response.status}`);
-  }
+  const payload = await response.json().catch(() => ({}));
 
-  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || `Backend drawings save failed with status ${response.status}`);
+  }
 
   if (!payload.ok) {
     throw new Error(payload.error || "Market drawings save returned an error");
