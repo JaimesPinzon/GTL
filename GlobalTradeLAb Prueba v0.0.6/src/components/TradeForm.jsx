@@ -36,9 +36,9 @@ const TradeForm = () => {
   const normalizedRoomBalance = Number.isFinite(Number(resolvedRoomBalance))
     ? Number(resolvedRoomBalance)
     : null;
-  const normalizedTotalBalance = Number.isFinite(Number(currentRoomAccount?.totalBalance))
-    ? Number(currentRoomAccount.totalBalance)
-    : normalizedRoomBalance ?? 0;
+  const normalizedOperatingValue = Number.isFinite(Number(currentRoomAccount?.blockedBalance))
+    ? Number(currentRoomAccount.blockedBalance)
+    : 0;
 
   const currentSymbolInfo = initialSymbols.find(s => s.id === selectedSymbol);
   const currentPrice = getCurrentPrice(selectedSymbol);
@@ -98,7 +98,7 @@ const TradeForm = () => {
       handleSubmit={handleSubmit}
       totalCostUSD={totalCostUSD}
       userBalance={normalizedRoomBalance ?? 0}
-      totalBalance={normalizedTotalBalance}
+      operatingValue={normalizedOperatingValue}
       balanceStatus={activeRoomAccountStatus || (resolvedRoomId ? "loading" : "ready")}
       onRetryBalance={refreshRoomAccount}
       portfolioStatus={roomPortfolioStatus}

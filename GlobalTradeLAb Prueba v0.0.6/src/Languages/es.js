@@ -95,6 +95,7 @@ const es = {
     sidebar: {
       platform: "Plataforma",
       markets: "Mercados",
+      financialLab: "Laboratorio financiero",
       classes: "Clases",
       learn: "Aprender",
       syntheticMarket: "Mercado sintético",
@@ -214,6 +215,7 @@ const es = {
       currentPriceLabel: "Precio actual",
       totalEstimateLabel: "Costo total estimado",
       totalBalanceLabel: "Saldo total",
+      operatingValueLabel: "Valor en operaciones",
       fileHelp: "Opcional, PNG/JPG, máx. 2 MB",
       importantInfoTitle: "Información importante",
       simulationNotice: "Todas las operaciones son simuladas con dinero virtual ({{currency}}).",

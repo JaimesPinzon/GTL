@@ -26,7 +26,7 @@ export const ClassMarketContextProvider = ({ children }) => {
 
   const isOperationalRoute = useMemo(
     () =>
-      Object.values(CLASS_CONTEXT_PATHS).some((path) =>
+      [CLASS_CONTEXT_PATHS.dashboard, CLASS_CONTEXT_PATHS.markets].some((path) =>
         location.pathname.endsWith(`/${path}`)
       ),
     [location.pathname]

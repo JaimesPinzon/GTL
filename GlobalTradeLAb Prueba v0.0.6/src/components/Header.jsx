@@ -32,13 +32,14 @@ const Header = () => {
   const roomPathMatch = location.pathname.match(/^\/app\/classes\/([^/]+)(\/.*)?$/);
   const routeRoomId = roomPathMatch?.[1] || null;
   const isInsideClassWorkspace = Boolean(roomPathMatch);
+  const isFinancialLabWorkspace = /\/financial-lab(?:\/|$)/.test(location.pathname);
   const resolvedRoomId = routeRoomId || activeRoomId || null;
-  const shouldShowContextBalance = Boolean(user) && isInsideClassWorkspace && Boolean(resolvedRoomId);
+  const shouldShowContextBalance = Boolean(user) && isInsideClassWorkspace && !isFinancialLabWorkspace && Boolean(resolvedRoomId);
   const account = activeRoomAccount?.roomId === resolvedRoomId ? activeRoomAccount : null;
   const resolvedCurrency = account?.currency || activeRoom?.defaultCurrency ||
     preferencesState?.preferredCurrency || "USD";
   const balanceLabel = account
-    ? formatCurrency(account.totalBalance ?? account.availableBalance, resolvedCurrency)
+    ? formatCurrency(account.availableBalance, resolvedCurrency)
     : t(activeRoomAccountStatus === "loading" ? "common.states.loading" : "common.states.unavailable");
 
   return (
@@ -62,7 +63,7 @@ const Header = () => {
           {shouldShowContextBalance ? (
             <div className="flex items-center rounded-full border border-border/70 bg-secondary/70 px-4 py-2.5 shadow-[inset_0_1px_0_hsla(var(--background)/0.12)]">
               <DollarSign className="mr-2 h-4 w-4 text-green-400" />
-              <span className="font-medium" title={t("trading.form.totalBalanceLabel")}>
+              <span className="font-medium" title={t("common.labels.balance")}>
                 {balanceLabel}
               </span>
             </div>

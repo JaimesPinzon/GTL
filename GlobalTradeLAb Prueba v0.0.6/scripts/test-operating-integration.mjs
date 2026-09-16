@@ -129,7 +129,7 @@ test('open, close, reopen and submit use the shared balance and actual last char
     const form = () => renderer.root.findByType('trade-ui').props;
     assert.equal(form().balanceStatus, 'ready');
     assert.equal(form().userBalance, 10000);
-    assert.equal(form().totalBalance, 15000);
+    assert.equal(form().operatingValue, 5000);
     assert.equal(form().currentPrice, history.at(-1).close);
     assert.equal(form().currentPrice, renderer.root.findByType('chart-price').props.price);
     assert.equal(accountRequests, 1);
@@ -147,7 +147,7 @@ test('open, close, reopen and submit use the shared balance and actual last char
     assert.equal(saved[0].price, history.at(-1).close);
     assert.equal(saved[0].amount, 1000);
     assert.equal(form().userBalance, 9000);
-    assert.equal(form().totalBalance, 15000);
+    assert.equal(form().operatingValue, 6000);
     assert.equal(renderer.root.findByType('header-balance').props.balance, 9000);
 
     await act(async () => { realtime({ ...account, availableBalance: 0 }); });

@@ -30,7 +30,7 @@ const TradeFormUI = ({
   handleSubmit,
   totalCostUSD,
   userBalance,
-  totalBalance = userBalance,
+  operatingValue = 0,
   balanceStatus = "ready",
   onRetryBalance,
   portfolioStatus = "ready",
@@ -136,15 +136,15 @@ const TradeFormUI = ({
         </div>
 
         <div className="space-y-1">
-          <Label>{t("trading.form.totalBalanceLabel")}</Label>
-          <p className="text-sm font-medium" aria-live="polite">
+          <Label>{t("common.labels.balance")}</Label>
+          <p className="text-lg font-semibold" aria-live="polite">
             {balanceStatus === "ready"
-              ? formatCurrency(totalBalance, userCurrency)
+              ? formatCurrency(userBalance, userCurrency)
               : t(balanceStatus === "loading" ? "common.states.loading" : "common.states.unavailable")}
           </p>
-          {balanceStatus === "ready" && totalBalance !== userBalance ? (
+          {balanceStatus === "ready" ? (
             <p className="text-xs text-muted-foreground">
-              {t("common.labels.balance")}: {formatCurrency(userBalance, userCurrency)}
+              {t("trading.form.operatingValueLabel")}: {formatCurrency(operatingValue, userCurrency)}
             </p>
           ) : null}
           {balanceStatus !== "ready" && balanceStatus !== "loading" && onRetryBalance ? (

@@ -13,12 +13,14 @@ export const GLOBAL_APP_PATHS = {
 export const CLASS_CONTEXT_PATHS = {
   dashboard: "dashboard",
   markets: "markets",
+  financialLab: "financial-lab",
   editClass: "edictclass",
 };
 
 export const CLASS_CONTEXT_NAV_ITEMS = [
   { id: "dashboard", path: CLASS_CONTEXT_PATHS.dashboard },
   { id: "markets", path: CLASS_CONTEXT_PATHS.markets },
+  { id: "financialLab", path: CLASS_CONTEXT_PATHS.financialLab },
 ];
 
 export const buildClassHomeRoute = (classId) => `${APP_ROOT_PATH}/classes/${classId}`;

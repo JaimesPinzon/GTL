@@ -4,6 +4,7 @@ import {
   BarChart2,
   BookOpen,
   GraduationCap,
+  FlaskConical,
   Info,
   LogOut,
   Menu,
@@ -89,13 +90,11 @@ const Sidebar = () => {
     () =>
       CLASS_CONTEXT_NAV_ITEMS.map((item) => ({
         ...item,
-        icon:
-          item.id === "dashboard"
-            ? BookOpen
-            : BarChart2,
-        label:
-          item.id === "dashboard"
-            ? "Dashboard"
+        icon: item.id === "dashboard" ? BookOpen : item.id === "financialLab" ? FlaskConical : BarChart2,
+        label: item.id === "dashboard"
+          ? "Dashboard"
+          : item.id === "financialLab"
+            ? t("navigation.sidebar.financialLab")
             : t("navigation.sidebar.markets"),
         path: activeClassId ? buildClassRoute(activeClassId, item.path) : null,
       })),

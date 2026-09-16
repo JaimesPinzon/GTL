@@ -95,6 +95,7 @@ const en = {
     sidebar: {
       platform: "Platform",
       markets: "Markets",
+      financialLab: "Financial lab",
       classes: "Classes",
       learn: "Learn",
       syntheticMarket: "Synthetic market",
@@ -214,6 +215,7 @@ const en = {
       currentPriceLabel: "Current price",
       totalEstimateLabel: "Estimated total cost",
       totalBalanceLabel: "Total balance",
+      operatingValueLabel: "Value in open positions",
       fileHelp: "Optional, PNG/JPG, max 2 MB",
       importantInfoTitle: "Important information",
       simulationNotice: "All trades are simulated with virtual money ({{currency}}).",

@@ -52,17 +52,17 @@ const DashboardCard = ({ title, description, children, className }) => (
   </section>
 );
 
-const PortfolioSummaryCard = ({ balance, currentPortfolioPnl, currentPortfolioValue, positions, transactions }) => (
+const PortfolioSummaryCard = ({ balance, currency, currentPortfolioPnl, operatingValue, positions, transactions }) => (
   <DashboardCard
     title="Resumen de portafolio"
-    description="Balance, valor estimado y rendimiento acumulado del entorno actual."
+    description="Saldo disponible, capital en operaciones y rendimiento del entorno actual."
   >
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <MetricTile label="Valor total" value={formatCurrency(currentPortfolioValue, "USD")} />
-      <MetricTile label="Balance disponible" value={formatCurrency(balance, "USD")} />
+      <MetricTile label="Saldo disponible" value={formatCurrency(balance, currency)} />
+      <MetricTile label="Valor en operaciones" value={formatCurrency(operatingValue, currency)} />
       <MetricTile
         label="PnL"
-        value={formatCurrency(currentPortfolioPnl, "USD")}
+        value={formatCurrency(currentPortfolioPnl, currency)}
         valueClassName={currentPortfolioPnl >= 0 ? "text-success" : "text-destructive"}
       />
       <MetricTile
@@ -206,6 +206,7 @@ const DashboardWidgetShelf = ({ selectedSymbol }) => {
     roomPortfolios,
     user,
     activeRoom,
+    activeRoomAccount,
     setSelectedSymbol,
     symbols,
   } = useTradingWorkspace();
@@ -252,6 +253,10 @@ const DashboardWidgetShelf = ({ selectedSymbol }) => {
   );
 
   const currentPortfolioValue = calculatePortfolioValue(balance || 0, positions || []);
+  const availableBalance = activeRoomAccount?.availableBalance ?? balance ?? 0;
+  const operatingValue = activeRoomAccount?.blockedBalance ??
+    (positions || []).reduce((sum, position) => sum + Number(position.amount || 0), 0);
+  const portfolioCurrency = activeRoomAccount?.currency || activeRoom?.defaultCurrency || "USD";
   const portfolioInitialBalance = user?.initialBalance || activeRoom?.defaultBalance || 100000;
   const currentPortfolioPnl = currentPortfolioValue - portfolioInitialBalance;
   const rankingRows = useMemo(
@@ -314,7 +319,7 @@ const DashboardWidgetShelf = ({ selectedSymbol }) => {
         {activeWidgets.map((widget) => {
           if (widget.id === "positions") {
             return (
-              <div key={widget.id} className="min-w-0 xl:col-span-7">
+              <div key={widget.id} className="min-w-0 xl:col-span-6">
                 <PositionsList />
               </div>
             );
@@ -322,7 +327,7 @@ const DashboardWidgetShelf = ({ selectedSymbol }) => {
 
           if (widget.id === "history") {
             return (
-              <div key={widget.id} className="min-w-0 xl:col-span-5">
+              <div key={widget.id} className="min-w-0 xl:col-span-6">
                 <TransactionHistory />
               </div>
             );
@@ -332,9 +337,10 @@ const DashboardWidgetShelf = ({ selectedSymbol }) => {
             return (
               <div key={widget.id} className="min-w-0 xl:col-span-6">
                 <PortfolioSummaryCard
-                  balance={balance}
+                  balance={availableBalance}
+                  currency={portfolioCurrency}
                   currentPortfolioPnl={currentPortfolioPnl}
-                  currentPortfolioValue={currentPortfolioValue}
+                  operatingValue={operatingValue}
                   positions={positions}
                   transactions={transactions}
                 />

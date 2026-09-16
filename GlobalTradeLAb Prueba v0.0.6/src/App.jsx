@@ -26,6 +26,7 @@ const ClassesPanel = lazy(() => import("@/components/ClassesPanel"));
 const TeacherMarkets = lazy(() => import("@/components/teacher/TeacherMarkets"));
 const ClassOverviewPage = lazy(() => import("@/features/classes/pages/ClassOverviewPage"));
 const EditClassPage = lazy(() => import("@/features/classes/pages/EditClassPage"));
+const FinancialLabPage = lazy(() => import("@/features/financial-lab/pages/FinancialLabPage"));
 
 const hexToHslTriplet = (hex) => {
   const normalized = hex.replace("#", "");
@@ -380,6 +381,10 @@ function AppContent() {
                       <TeacherMarkets />
                     </PageScroller>
                   }
+                />
+                <Route
+                  path={`classes/:classId/${CLASS_CONTEXT_PATHS.financialLab}`}
+                  element={<FinancialLabPage />}
                 />
               </Route>
               <Route element={<ClassRouteGuard requiredRole="teacher" />}>

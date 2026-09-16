@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { env } from "@/lib/env";
 
-const legacyStorageKey = "sb-stdwhmaenhibnaammwdj-auth-token";
 const expectedIssuer = `${env.VITE_SUPABASE_URL}/auth/v1`;
 
 const getProjectRefStorageKey = () => {
@@ -16,7 +15,7 @@ const getProjectRefStorageKey = () => {
 
 const getStorageKeyCandidates = () => {
   const projectKey = getProjectRefStorageKey();
-  return [projectKey, legacyStorageKey].filter(Boolean);
+  return [projectKey].filter(Boolean);
 };
 
 const decodeJwtPayload = (token) => {
