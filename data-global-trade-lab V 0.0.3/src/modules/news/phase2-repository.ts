@@ -104,7 +104,7 @@ export async function getUnreadNewsBySymbol(userId: string, symbols: string[]) {
   }, {});
 }
 
-async function getArticleSnapshot(newsId: string) {
+export async function getArticleSnapshot(newsId: string) {
   const demo = demoNews.find((article) => article.id === newsId);
   if (demo) return { article: demo, databaseId: null };
   const result = await supabaseAdmin

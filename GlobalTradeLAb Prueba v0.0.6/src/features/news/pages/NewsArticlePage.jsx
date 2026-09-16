@@ -12,18 +12,20 @@ import {
   AssetPill,
   AssetUnavailableModal,
   ClassSelectorModal,
+  EducationalExplanationPanel,
   formatNewsTime,
   NewsCard,
   NewsClassActionModal,
   NewsSkeleton,
   NewsState,
   NewsVisual,
+  HistoricalImpactPanel,
   SentimentBadge,
   TopicBadge,
 } from "@/features/news/components/NewsUi";
 import { useNewsContext } from "@/features/news/context/NewsContext";
-import { fetchNews, fetchNewsArticle, getCachedNews, performNewsClassAction } from "@/lib/news-api";
-import { GLOBAL_APP_PATHS } from "@/lib/routes";
+import { createLabEventFromNews, explainNews, fetchNews, fetchNewsArticle, fetchNewsImpact, getCachedNews, performNewsClassAction } from "@/lib/news-api";
+import { CLASS_CONTEXT_PATHS, GLOBAL_APP_PATHS, buildClassRoute } from "@/lib/routes";
 
 const NewsArticlePage = () => {
   const { t, i18n } = useTranslation();
@@ -43,6 +45,11 @@ const NewsArticlePage = () => {
   const [classActionMode, setClassActionMode] = useState(null);
   const [classActionSaving, setClassActionSaving] = useState(false);
   const [classActionForm, setClassActionForm] = useState({ roomId: "", title: "", activityType: "asset_analysis", note: "" });
+  const [impact, setImpact] = useState(null);
+  const [impactSymbol, setImpactSymbol] = useState("");
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [explanation, setExplanation] = useState(null);
+  const [explanationLoading, setExplanationLoading] = useState(false);
   const manageableClasses = useMemo(() => accessibleClasses.filter((room) => room.createdBy === user?.id || ["teacher", "monitor"].includes(room.membershipRole)), [accessibleClasses, user?.id]);
 
   useEffect(() => {
@@ -52,6 +59,8 @@ const NewsArticlePage = () => {
       .then(async (value) => {
         if (!mounted) return;
         setArticle(value);
+        setImpactSymbol(value.assets?.[0]?.symbol || "");
+        setImpact(null);
         markRead(value.id);
         setStatus("ready");
         try {
@@ -65,6 +74,8 @@ const NewsArticlePage = () => {
         if (!mounted) return;
         const cached = getCachedNews().find((entry) => entry.id === newsId) || null;
         setArticle(cached);
+        setImpactSymbol(cached?.assets?.[0]?.symbol || "");
+        setImpact(null);
         if (cached) markRead(cached.id);
         setStatus(cached ? "ready" : "error");
       });
@@ -108,6 +119,13 @@ const NewsArticlePage = () => {
     event.preventDefault();
     setClassActionSaving(true);
     try {
+      if (classActionMode === "lab") {
+        const response = await createLabEventFromNews({ newsId: article.id, roomId: classActionForm.roomId, symbol: article.assets?.[0]?.symbol, description: classActionForm.note });
+        toast({ title: t("news.classActions.lab.success") });
+        setClassActionMode(null);
+        navigate(`${buildClassRoute(classActionForm.roomId, CLASS_CONTEXT_PATHS.financialLab)}?event=${encodeURIComponent(response.event.id)}&news=${encodeURIComponent(article.id)}`);
+        return;
+      }
       await performNewsClassAction({ action: classActionMode === "activity" ? "create_activity" : "share", newsId: article.id, roomId: classActionForm.roomId, title: classActionForm.title, activityType: classActionForm.activityType, note: classActionForm.note, prompt: classActionForm.note });
       toast({ title: t(`news.classActions.${classActionMode}.success`) });
       setClassActionMode(null);
@@ -115,6 +133,27 @@ const NewsArticlePage = () => {
       toast({ variant: "destructive", title: t("news.classActions.error"), description: error.message });
     } finally {
       setClassActionSaving(false);
+    }
+  };
+
+  const loadImpact = async () => {
+    const symbol = impactSymbol;
+    if (!symbol) return;
+    setImpactLoading(true);
+    try { setImpact(await fetchNewsImpact(article.id, symbol)); }
+    catch (error) { toast({ variant: "destructive", title: t("news.impact.error"), description: error.message }); }
+    finally { setImpactLoading(false); }
+  };
+
+  const loadExplanation = async () => {
+    setExplanationLoading(true);
+    try {
+      const response = await explainNews(article.id, i18n.language.startsWith("en") ? "en" : "es");
+      setExplanation(response.explanation);
+    } catch (error) {
+      toast({ variant: "destructive", title: t("news.ai.error"), description: error.message });
+    } finally {
+      setExplanationLoading(false);
     }
   };
 
@@ -133,7 +172,7 @@ const NewsArticlePage = () => {
             <p className="mt-5 max-w-3xl text-base leading-7 text-muted-foreground md:text-lg">{article.summary}</p>
             <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span className="font-semibold text-foreground">{article.source}</span><span>·</span>{article.author ? <><span>{article.author}</span><span>·</span></> : null}<Clock3 className="h-4 w-4" /><time dateTime={article.publishedAt}>{publicationDate}</time></div>
             <div className="mt-4"><SentimentBadge sentiment={article.sentiment} /></div>
-            <div className="mt-6 flex flex-wrap gap-2"><ArticleActions article={article} isSaved={isSaved(article.id)} onToggleSaved={toggleSaved} onShare={handleShare} />{manageableClasses.length ? <><Button variant="outline" onClick={() => openClassAction("share")}>{t("news.classActions.share.button")}</Button><Button variant="outline" onClick={() => openClassAction("activity")}>{t("news.classActions.activity.button")}</Button></> : null}</div>
+            <div className="mt-6 flex flex-wrap gap-2"><ArticleActions article={article} isSaved={isSaved(article.id)} onToggleSaved={toggleSaved} onShare={handleShare} />{manageableClasses.length ? <><Button variant="outline" onClick={() => openClassAction("share")}>{t("news.classActions.share.button")}</Button><Button variant="outline" onClick={() => openClassAction("activity")}>{t("news.classActions.activity.button")}</Button><Button variant="outline" onClick={() => openClassAction("lab")}>{t("news.classActions.lab.button")}</Button></> : null}</div>
           </div>
 
           <div className="mt-8 h-[320px] overflow-hidden rounded-[28px] border border-border/60 md:h-[480px]"><NewsVisual article={article} /></div>
@@ -153,8 +192,10 @@ const NewsArticlePage = () => {
             <aside className="space-y-6">
               <section className="rounded-[24px] border border-border/60 bg-card/45 p-5">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">{t("news.article.relatedAssets")}</p>
-                <div className="mt-4 space-y-3">{article.assets?.map((asset) => <div key={asset.symbol} className="flex items-center justify-between gap-3"><AssetPill asset={asset} /><Button size="sm" variant="ghost" className="gap-2" onClick={() => handleOpenMarket(asset.symbol)}>{t("news.actions.market")}<BarChart3 className="h-3.5 w-3.5" /></Button></div>)}</div>
+                <div className="mt-4 space-y-3">{article.assets?.map((asset) => <div key={asset.symbol} className="flex items-center justify-between gap-3"><AssetPill asset={asset} /><div className="flex items-center gap-1"><Button size="sm" disabled={impactLoading} variant={impactSymbol === asset.symbol ? "secondary" : "ghost"} onClick={() => { setImpactSymbol(asset.symbol); setImpact(null); }}>{t("news.impact.select")}</Button><Button size="sm" variant="ghost" className="gap-2" onClick={() => handleOpenMarket(asset.symbol)}>{t("news.actions.market")}<BarChart3 className="h-3.5 w-3.5" /></Button></div></div>)}</div>
               </section>
+              {impactSymbol ? <HistoricalImpactPanel symbol={impactSymbol} impact={impact} loading={impactLoading} onLoad={loadImpact} /> : null}
+              <EducationalExplanationPanel result={explanation} loading={explanationLoading} onExplain={loadExplanation} />
               <section className="rounded-[24px] border border-primary/20 bg-primary/5 p-5">
                 <div className="w-fit rounded-xl bg-primary/10 p-2.5 text-primary"><BookOpen className="h-5 w-5" /></div><h2 className="mt-3 font-semibold">{t("news.article.educationalTitle")}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("news.article.educationalDescription")}</p><Button variant="outline" className="mt-4 w-full" asChild><Link to={GLOBAL_APP_PATHS.learn}>{t("news.article.goToLearn")}</Link></Button>
               </section>

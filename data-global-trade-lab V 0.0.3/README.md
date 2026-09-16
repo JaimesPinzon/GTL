@@ -14,12 +14,15 @@ Base de backend/frontend en Next.js para conectar:
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 TWELVEDATA_API_KEY=...
+OPENAI_API_KEY=... # opcional: explicaciones educativas de Noticias
+OPENAI_NEWS_MODEL=gpt-5
 ```
 
 Notas:
 
 - Las variables `NEXT_PUBLIC_*` son necesarias para el cliente y el servidor de Supabase.
 - `TWELVEDATA_API_KEY` debe quedarse solo en backend. No la expongas en componentes cliente.
+- `OPENAI_API_KEY` también es exclusivamente de backend. Si no se configura, Noticias utiliza una explicación educativa determinista de respaldo.
 
 ## Supabase Schema
 

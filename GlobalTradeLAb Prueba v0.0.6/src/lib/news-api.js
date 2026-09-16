@@ -83,3 +83,33 @@ export const fetchClassNewsShares = async (roomId) => {
   const payload = await fetchWithAuth(`/api/news/class-actions?roomId=${encodeURIComponent(roomId)}`, { method: "GET", credentials: "omit" });
   return payload.shares || [];
 };
+
+export const fetchNewsImpact = async (newsId, symbol) => {
+  const params = new URLSearchParams({ mode: "impact", newsId, symbol });
+  const payload = await fetchWithAuth(`/api/news/insights?${params}`, { method: "GET", credentials: "omit" });
+  return payload.impact;
+};
+
+export const fetchClassPortfolioNews = async (roomId) => {
+  const params = new URLSearchParams({ mode: "portfolio", roomId });
+  const payload = await fetchWithAuth(`/api/news/insights?${params}`, { method: "GET", credentials: "omit" });
+  return payload.data;
+};
+
+export const fetchDailyNewsDigest = async (roomId) => {
+  const params = new URLSearchParams({ mode: "daily", roomId });
+  const payload = await fetchWithAuth(`/api/news/insights?${params}`, { method: "GET", credentials: "omit" });
+  return payload.data;
+};
+
+export const explainNews = (newsId, language) => fetchWithAuth("/api/news/insights", {
+  method: "POST",
+  credentials: "omit",
+  body: { action: "explain", newsId, language },
+});
+
+export const createLabEventFromNews = (input) => fetchWithAuth("/api/news/insights", {
+  method: "POST",
+  credentials: "omit",
+  body: { action: "create_lab_event", ...input },
+});

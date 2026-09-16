@@ -12,6 +12,7 @@ import {
   AssetUnavailableModal,
   ClassSelectorModal,
   DataStatusBanner,
+  DailyDigestPanel,
   EconomicCalendar,
   FeaturedNews,
   NewsCard,
@@ -28,6 +29,7 @@ import {
   createNewsAlert,
   deleteNewsAlert,
   fetchEconomicCalendar,
+  fetchDailyNewsDigest,
   fetchNews,
   fetchNewsAlerts,
   fetchUnreadNewsCounts,
@@ -91,6 +93,8 @@ const NewsPage = () => {
   const [alertsSaving, setAlertsSaving] = useState(false);
   const [alertForm, setAlertForm] = useState({ name: "", symbols: "", topics: "", minImportance: "50" });
   const [unreadCounts, setUnreadCounts] = useState({});
+  const [dailyDigest, setDailyDigest] = useState(null);
+  const [dailyDigestLoading, setDailyDigestLoading] = useState(false);
   const personalSymbols = useMemo(() => [...new Set(positions.map((position) => String(position.symbol || "").toUpperCase()).filter(Boolean))], [positions]);
 
   const loadNews = useCallback(async () => {
@@ -166,6 +170,20 @@ const NewsPage = () => {
     }
     fetchUnreadNewsCounts(personalSymbols).then(setUnreadCounts).catch(() => setUnreadCounts({}));
   }, [personalSymbols]);
+
+  useEffect(() => {
+    if (!activeClassId) {
+      setDailyDigest(null);
+      return;
+    }
+    let mounted = true;
+    setDailyDigestLoading(true);
+    fetchDailyNewsDigest(activeClassId)
+      .then((value) => { if (mounted) setDailyDigest(value); })
+      .catch(() => { if (mounted) setDailyDigest(null); })
+      .finally(() => { if (mounted) setDailyDigestLoading(false); });
+    return () => { mounted = false; };
+  }, [activeClassId]);
 
   useEffect(() => {
     if (activeTab !== "calendar") return;
@@ -318,7 +336,7 @@ const NewsPage = () => {
                   <div className="flex items-center justify-between border-b border-border/50 py-5"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">{t("news.latest.eyebrow")}</p><h2 className="mt-1 text-xl font-bold">{t("news.latest.title")}</h2></div><Button variant="ghost" className="gap-2" onClick={() => handleTabChange("latest")}>{t("news.actions.viewAll")}<ArrowRight className="h-4 w-4" /></Button></div>
                   {renderFeed(false)}
                 </section>
-                <div className="space-y-6"><TrendingPanel articles={trending} /><SideContextPanel activeClass={activeClass} personalCount={personalSymbols.length} onViewMine={() => handleTabChange("mine")} /><UpcomingPanel /></div>
+                <div className="space-y-6"><DailyDigestPanel digest={dailyDigest} loading={dailyDigestLoading} onOpen={(id) => navigate(`${GLOBAL_APP_PATHS.news}/${encodeURIComponent(id)}`)} /><TrendingPanel articles={trending} /><SideContextPanel activeClass={activeClass} personalCount={personalSymbols.length} onViewMine={() => handleTabChange("mine")} /><UpcomingPanel /></div>
               </div>
             </>
           ) : null}

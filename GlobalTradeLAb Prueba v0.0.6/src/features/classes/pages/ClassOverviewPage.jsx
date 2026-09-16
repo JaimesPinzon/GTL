@@ -21,7 +21,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useTradingContext } from "@/contexts/TradingContext";
 import { useClassContext } from "@/features/classes/context/ClassContext";
 import { CLASS_CONTEXT_PATHS, GLOBAL_APP_PATHS, buildClassRoute, buildNewsArticleRoute } from "@/lib/routes";
-import { fetchClassNewsShares } from "@/lib/news-api";
+import { fetchClassNewsShares, fetchClassPortfolioNews } from "@/lib/news-api";
 import { formatCurrency } from "@/lib/market-data";
 import {
   autoAssignRoomGroups,
@@ -99,6 +99,7 @@ const ClassOverviewPage = () => {
   const [activities, setActivities] = useState([]);
   const [roomGrades, setRoomGrades] = useState([]);
   const [sharedNews, setSharedNews] = useState([]);
+  const [portfolioNews, setPortfolioNews] = useState({ symbols: [], articles: [] });
   const [activityQuery, setActivityQuery] = useState("");
   const [activityFilter, setActivityFilter] = useState("all");
   const [isGroupsModalOpen, setIsGroupsModalOpen] = useState(false);
@@ -136,15 +137,17 @@ const ClassOverviewPage = () => {
           setActivities([]);
           setRoomGrades([]);
           setSharedNews([]);
+          setPortfolioNews({ symbols: [], articles: [] });
         }
         return;
       }
 
       try {
-        const [roomActivities, gradebook, newsShares] = await Promise.all([
+        const [roomActivities, gradebook, newsShares, classPortfolioNews] = await Promise.all([
           fetchRoomActivities(activeClass.id, user?.role || "student"),
           fetchRoomGradebook(activeClass.id),
           fetchClassNewsShares(activeClass.id),
+          fetchClassPortfolioNews(activeClass.id),
         ]);
 
         if (!isMounted) {
@@ -154,6 +157,7 @@ const ClassOverviewPage = () => {
         setActivities(roomActivities);
         setRoomGrades(gradebook);
         setSharedNews(newsShares);
+        setPortfolioNews(classPortfolioNews);
       } catch (error) {
         console.error("loadClassOverview error", error);
         if (isMounted) {
@@ -669,6 +673,8 @@ const ClassOverviewPage = () => {
             </CardContent>
           </Card>
         ) : null}
+
+        {portfolioNews.articles?.length ? <Card className="glass-card overflow-hidden"><CardHeader className="border-b border-white/8 bg-white/[0.02] pb-5"><CardTitle className="flex items-center gap-3 text-2xl"><BarChart2 className="h-6 w-6 text-primary" />{t("classes.portfolioNews.title")}</CardTitle><p className="mt-2 text-sm text-muted-foreground">{t("classes.portfolioNews.description", { count: portfolioNews.symbols.length })}</p></CardHeader><CardContent className="divide-y divide-white/8 p-5">{portfolioNews.articles.slice(0, 5).map((article) => <button key={article.id} type="button" onClick={() => navigate(buildNewsArticleRoute(article.id))} className="flex w-full items-start justify-between gap-4 py-4 text-left first:pt-0 last:pb-0"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{article.assets?.filter((asset) => portfolioNews.symbols.includes(asset.symbol)).map((asset) => asset.symbol).join(" · ")}</p><h3 className="mt-1 font-semibold text-white">{article.title}</h3></div><span className="shrink-0 text-xs text-slate-500">{article.source}</span></button>)}</CardContent></Card> : null}
 
         <Card ref={activitiesSectionRef} className="glass-card overflow-hidden">
           <CardHeader className="border-b border-white/8 bg-white/[0.02] pb-5">

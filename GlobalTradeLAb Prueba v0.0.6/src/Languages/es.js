@@ -165,6 +165,10 @@ const es = {
       noAlerts: { title: "Aún no tienes alertas", description: "Crea una alerta por activo o tema para seguir los acontecimientos relevantes." },
     },
     calendar: { eyebrow: "Agenda macroeconómica", title: "Calendario económico", allImpact: "Todos los impactos", impact: { high: "Alto", medium: "Medio", low: "Bajo" }, previous: "Anterior", forecast: "Pronóstico", actual: "Actual" },
+    daily: { title: "Resumen diario", summary: "{{news}} noticias relacionadas con {{assets}} activos de esta clase." },
+    impact: { eyebrow: "Observación histórica", title: "Antes y después de {{symbol}}", select: "Impacto", before: "Precio anterior", calculate: "Calcular", description: "Compara precios almacenados alrededor de la publicación.", noData: "No hay suficientes velas históricas almacenadas para esta ventana.", disclaimer: "Variación descriptiva calculada con {{count}} velas. No demuestra causalidad ni predice movimientos futuros.", error: "No se pudo calcular el impacto histórico" },
+    lab: { imported: "Referencia histórica importada", importedDescription: "La noticia quedó convertida en un evento reproducible. Revisa su impacto antes de incorporarlo a un escenario.", source: "Origen", reviewEvent: "Revisar evento", createSimulation: "Crear simulación", historicalSimulation: "Simulación histórica" },
+    ai: { eyebrow: "Asistente educativo", title: "Explicar este acontecimiento", explain: "Explicar", description: "Genera contexto conceptual, mecanismos posibles y preguntas para analizar la noticia.", relevance: "¿Por qué puede ser relevante?", questions: "Preguntas para analizar", error: "No se pudo generar la explicación" },
     alerts: { title: "Alertas de noticias", description: "Recibe seguimiento personalizado por símbolos o temas.", namePlaceholder: "Nombre de la alerta", symbolsPlaceholder: "Símbolos separados por coma: NVDA, SPY", topicsPlaceholder: "Temas separados por coma: inflación, IA", importance: "Importancia mínima", create: "Crear alerta", enabled: "Activa", disabled: "Pausada", created: "Alerta creada", error: "No se pudo actualizar la alerta" },
     classActions: {
       classLabel: "Clase",
@@ -177,6 +181,7 @@ const es = {
       error: "No se pudo completar la acción",
       share: { title: "Compartir con la clase", description: "Publica esta noticia en el contexto de una clase.", submit: "Compartir noticia", button: "Compartir con clase", success: "Noticia compartida con la clase" },
       activity: { title: "Crear actividad desde la noticia", description: "Convierte la noticia en una consigna educativa vinculada.", submit: "Crear actividad", button: "Crear actividad", success: "Actividad creada desde la noticia" },
+      lab: { title: "Usar en Laboratorio Financiero", description: "Crea un evento histórico o inspirado en la noticia para incorporarlo a una simulación.", submit: "Crear evento", button: "Usar en laboratorio", success: "Evento creado en el Laboratorio Financiero" },
     },
     classSelector: {
       title: "Cambiar clase activa",
@@ -1659,6 +1664,7 @@ const es = {
   },
   classes: {
     sharedNews: { title: "Noticias compartidas", description: "Noticias seleccionadas por el equipo docente para esta clase.", label: "Noticia de clase", openSource: "Abrir noticia vinculada" },
+    portfolioNews: { title: "Noticias del portafolio", description: "Cobertura reciente para {{count}} activos utilizados en esta clase." },
     common: {
       student: "Estudiante",
       noVisibleEmail: "Sin correo visible",

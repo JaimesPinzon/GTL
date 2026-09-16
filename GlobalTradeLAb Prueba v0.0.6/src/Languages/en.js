@@ -165,6 +165,10 @@ const en = {
       noAlerts: { title: "No alerts yet", description: "Create an alert by asset or topic to follow relevant events." },
     },
     calendar: { eyebrow: "Macroeconomic agenda", title: "Economic calendar", allImpact: "All impacts", impact: { high: "High", medium: "Medium", low: "Low" }, previous: "Previous", forecast: "Forecast", actual: "Actual" },
+    daily: { title: "Daily brief", summary: "{{news}} news items related to {{assets}} assets in this class." },
+    impact: { eyebrow: "Historical observation", title: "Before and after {{symbol}}", select: "Impact", before: "Previous price", calculate: "Calculate", description: "Compare stored prices around the publication time.", noData: "There are not enough stored historical candles for this window.", disclaimer: "Descriptive change calculated from {{count}} candles. It does not establish causality or predict future moves.", error: "Historical impact could not be calculated" },
+    lab: { imported: "Imported historical reference", importedDescription: "The news item is now a reproducible event. Review its impact before adding it to a scenario.", source: "Source", reviewEvent: "Review event", createSimulation: "Create simulation", historicalSimulation: "Historical simulation" },
+    ai: { eyebrow: "Educational assistant", title: "Explain this event", explain: "Explain", description: "Generate conceptual context, possible mechanisms, and questions for analyzing the news.", relevance: "Why might it matter?", questions: "Questions to analyze", error: "The explanation could not be generated" },
     alerts: { title: "News alerts", description: "Create personalized tracking by symbol or topic.", namePlaceholder: "Alert name", symbolsPlaceholder: "Comma-separated symbols: NVDA, SPY", topicsPlaceholder: "Comma-separated topics: inflation, AI", importance: "Minimum importance", create: "Create alert", enabled: "Enabled", disabled: "Paused", created: "Alert created", error: "The alert could not be updated" },
     classActions: {
       classLabel: "Class",
@@ -177,6 +181,7 @@ const en = {
       error: "The action could not be completed",
       share: { title: "Share with class", description: "Publish this news item in a class context.", submit: "Share news", button: "Share with class", success: "News shared with the class" },
       activity: { title: "Create activity from news", description: "Turn this news item into a linked educational prompt.", submit: "Create activity", button: "Create activity", success: "Activity created from the news item" },
+      lab: { title: "Use in Financial Lab", description: "Create a historical or news-inspired event for a simulation.", submit: "Create event", button: "Use in lab", success: "Event created in the Financial Lab" },
     },
     classSelector: {
       title: "Change active class",
@@ -1658,6 +1663,7 @@ const en = {
   },
   classes: {
     sharedNews: { title: "Shared news", description: "News selected by the teaching team for this class.", label: "Class news", openSource: "Open linked news" },
+    portfolioNews: { title: "Portfolio news", description: "Recent coverage for {{count}} assets used in this class." },
     common: {
       student: "Student",
       noVisibleEmail: "No visible email",

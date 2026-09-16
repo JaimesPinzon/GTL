@@ -39,6 +39,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { useClassContext } from "@/features/classes/context/ClassContext";
 import { fetchFinancialLab, mutateFinancialLab } from "@/lib/financial-lab-api";
+import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 const tabs = [
   ["overview", "Resumen", Gauge],
@@ -393,15 +395,17 @@ const EventDialog = ({ open, onClose, onSubmit, saving, sourceEvent = null }) =>
   );
 };
 
-const ScenarioDialog = ({ open, onClose, onSubmit, saving, markets, events }) => {
+const ScenarioDialog = ({ open, onClose, onSubmit, saving, markets, events, initialEventId = null }) => {
+  const { t } = useTranslation();
   const [scenario, setScenario] = useState({ name: "", description: "", academicObjective: "", marketId: "", durationPeriods: 80, seed: 2026 });
   const [timeline, setTimeline] = useState([]);
   useEffect(() => {
     if (!open) return;
     const market = markets[0];
-    setScenario({ name: "", description: "", academicObjective: "", marketId: market?.id || "", durationPeriods: market?.duration_periods || 80, seed: market?.seed || 2026 });
-    setTimeline([]);
-  }, [open, markets]);
+    const initialEvent = events.find((event) => event.id === initialEventId);
+    setScenario({ name: initialEvent ? `${t("news.lab.historicalSimulation")} · ${initialEvent.name}` : "", description: initialEvent?.description || "", academicObjective: initialEvent?.academic_objective || "", marketId: market?.id || "", durationPeriods: market?.duration_periods || 80, seed: market?.seed || 2026 });
+    setTimeline(initialEvent ? [{ eventId: initialEvent.id, activationPeriod: Math.min(numberValue(initialEvent.default_period, 10), numberValue(market?.duration_periods, 80) - 1), name: initialEvent.name, direction: initialEvent.direction }] : []);
+  }, [events, initialEventId, open, markets, t]);
   const selectedMarket = markets.find((market) => market.id === scenario.marketId);
   const addEvent = (event) => setTimeline((current) => [...current, { eventId: event.id, activationPeriod: Math.min(numberValue(event.default_period, current.length * 10 + 10), numberValue(scenario.durationPeriods) - 1), name: event.name, direction: event.direction }]);
   return (
@@ -528,6 +532,8 @@ const StudentWorkspace = ({ payload, selectedSessionId, onSelectSession, onOrder
 };
 
 const FinancialLabPage = () => {
+  const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
   const { activeClassId, activeClass } = useClassContext() || {};
   const { toast } = useToast();
   const [payload, setPayload] = useState(null);
@@ -539,6 +545,8 @@ const FinancialLabPage = () => {
   const [scenarioDialog, setScenarioDialog] = useState(false);
   const [eventSource, setEventSource] = useState(null);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const linkedEventId = searchParams.get("event");
+  const sourceNewsId = searchParams.get("news");
 
   const load = useCallback(async (sessionId = selectedSessionId, quiet = false) => {
     if (!activeClassId) return;
@@ -590,6 +598,7 @@ const FinancialLabPage = () => {
   const sessions = payload.sessions || [];
   const activeSessions = sessions.filter((session) => ["active", "paused"].includes(session.state));
   const customEvents = events.filter((event) => event.event_kind !== "base");
+  const linkedEvent = events.find((event) => event.id === linkedEventId);
 
   const openEvent = (source = null) => { setEventSource(source); setEventDialog(true); };
   const launch = async (scenario) => {
@@ -617,6 +626,8 @@ const FinancialLabPage = () => {
           {tabs.map(([id, label, Icon]) => <button type="button" key={id} onClick={() => setTab(id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm transition ${tab === id ? "bg-blue-500 text-white shadow-lg shadow-blue-950/30" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><Icon className="h-4 w-4" />{label}</button>)}
         </nav>
 
+        {linkedEvent ? <section className="mt-5 flex flex-col justify-between gap-4 rounded-3xl border border-amber-400/20 bg-amber-400/[0.06] p-5 md:flex-row md:items-center"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-300">{t("news.lab.imported")}</p><h2 className="mt-2 font-semibold text-white">{linkedEvent.name}</h2><p className="mt-1 text-sm text-slate-400">{t("news.lab.importedDescription")}</p>{sourceNewsId ? <p className="mt-2 text-xs text-slate-500">{t("news.lab.source")}: {sourceNewsId}</p> : null}</div><div className="flex gap-2"><Button variant="outline" onClick={() => setTab("events")}>{t("news.lab.reviewEvent")}</Button><Button disabled={!markets.length} onClick={() => setScenarioDialog(true)}>{t("news.lab.createSimulation")}</Button></div></section> : null}
+
         <main className="mt-5 space-y-5">
           {tab === "overview" ? <>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -640,7 +651,7 @@ const FinancialLabPage = () => {
 
       <MarketWizard open={marketDialog} onClose={() => setMarketDialog(false)} saving={busy} onSubmit={(form) => mutate("create_market", form, "Mercado sintético creado", () => setMarketDialog(false))} />
       <EventDialog open={eventDialog} sourceEvent={eventSource} onClose={() => { setEventDialog(false); setEventSource(null); }} saving={busy} onSubmit={(event) => mutate("create_event", { event }, "Evento guardado", () => { setEventDialog(false); setEventSource(null); })} />
-      <ScenarioDialog open={scenarioDialog} onClose={() => setScenarioDialog(false)} saving={busy} markets={markets} events={events} onSubmit={(form) => mutate("create_scenario", form, "Escenario validado y guardado", () => setScenarioDialog(false))} />
+      <ScenarioDialog open={scenarioDialog} onClose={() => setScenarioDialog(false)} saving={busy} markets={markets} events={events} initialEventId={linkedEventId} onSubmit={(form) => mutate("create_scenario", form, "Escenario validado y guardado", () => setScenarioDialog(false))} />
     </div>
   );
 };
