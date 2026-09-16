@@ -1,26 +1,13 @@
-const SNAPSHOT_SYMBOL_METADATA = {
-  AAPL: { type: "stock", localSymbol: "AAPL", nameKey: "trading.assets.apple", currency: "USD" },
-  MSFT: { type: "stock", localSymbol: "MSFT", nameKey: "trading.assets.microsoft", currency: "USD" },
-  AMZN: { type: "stock", localSymbol: "AMZN", nameKey: "trading.assets.amazon", currency: "USD" },
-  GOOGL: { type: "stock", localSymbol: "GOOGL", nameKey: "trading.assets.alphabet", currency: "USD" },
-  NVDA: { type: "stock", localSymbol: "NVDA", nameKey: "trading.assets.nvidia", currency: "USD" },
-  TSLA: { type: "stock", localSymbol: "TSLA", nameKey: "trading.assets.tesla", currency: "USD" },
-  META: { type: "stock", localSymbol: "META", nameKey: "trading.assets.meta", currency: "USD" },
-  "BRK.B": { type: "stock", localSymbol: "BRK.B", nameKey: "trading.assets.berkshire", currency: "USD" },
-  JPM: { type: "stock", localSymbol: "JPM", nameKey: "trading.assets.jpmorgan", currency: "USD" },
-  JNJ: { type: "stock", localSymbol: "JNJ", nameKey: "trading.assets.johnson", currency: "USD" },
-  QQQ: { type: "etf", localSymbol: "QQQ", nameKey: "trading.assets.qqq", currency: "USD" },
-  DIA: { type: "etf", localSymbol: "DIA", nameKey: "trading.assets.dia", currency: "USD" },
-  SPY: { type: "etf", localSymbol: "SPY", nameKey: "trading.assets.spy", currency: "USD" },
-  "BTC/USD": { type: "crypto", localSymbol: "BTCUSD", nameKey: "trading.assets.bitcoin", currency: "USD" },
-  "ETH/USD": { type: "crypto", localSymbol: "ETHUSD", nameKey: "trading.assets.ethereum", currency: "USD" },
-  "XRP/USD": { type: "crypto", localSymbol: "XRPUSD", nameKey: "trading.assets.ripple", currency: "USD" },
-  "ADA/USD": { type: "crypto", localSymbol: "ADAUSD", nameKey: "trading.assets.cardano", currency: "USD" },
-  "SOL/USD": { type: "crypto", localSymbol: "SOLUSD", nameKey: "trading.assets.solana", currency: "USD" },
-  NU: { type: "stock", localSymbol: "NU", nameKey: "trading.assets.nuHoldings", currency: "USD" },
-};
+import { ENABLED_MARKET_ASSETS } from "@/lib/market-assets";
 
-const CRYPTO_BASE_SYMBOLS = new Set(["BTC", "ETH", "XRP", "ADA", "SOL"]);
+const SNAPSHOT_SYMBOL_METADATA = Object.fromEntries(
+  ENABLED_MARKET_ASSETS.map(({ backendSymbol, id, nameKey, type, currency }) => [
+    backendSymbol,
+    { type, localSymbol: id, nameKey, currency },
+  ])
+);
+
+const CRYPTO_BASE_SYMBOLS = new Set(["BTC", "ETH"]);
 export const SNAPSHOT_REFRESH_INTERVAL_MS = 20000;
 
 export const normalizeSnapshotSymbol = (value) => String(value || "").trim().toUpperCase();
@@ -51,6 +38,10 @@ export const mapSnapshotRowsToSymbols = (rows, t) => {
       }
 
       const metadata = SNAPSHOT_SYMBOL_METADATA[normalizedSymbol];
+      if (!metadata) {
+        return null;
+      }
+
       const numericPrice = Number.parseFloat(String(row?.price ?? ""));
       const numericChange = Number.parseFloat(String(row?.percentChange ?? ""));
       const rawMarketStatus = String(row?.marketStatus ?? "").trim().toLowerCase();

@@ -38,7 +38,7 @@ export default function Home() {
           <p className="mt-3 text-sm leading-6 text-cyan-50">
             Cuando agregues `TWELVEDATA_API_KEY` a tu `.env.local`, puedes probar:
             <span className="block font-mono text-cyan-200">
-              /api/market/quote?symbol=AAPL
+              /api/market/quote?symbol=BTC/USD
             </span>
           </p>
         </section>

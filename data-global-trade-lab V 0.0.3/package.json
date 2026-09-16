@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "market:prune:dry-run": "node scripts/prune-market-assets.mjs",
+    "market:prune": "node scripts/prune-market-assets.mjs --apply"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

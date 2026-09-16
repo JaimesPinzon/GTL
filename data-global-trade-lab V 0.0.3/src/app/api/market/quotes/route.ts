@@ -54,7 +54,7 @@ export async function OPTIONS() {
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-    const rawSymbols = searchParams.get("symbols")?.trim() ?? "AAPL";
+    const rawSymbols = searchParams.get("symbols")?.trim() ?? "BTC/USD";
     const symbols = rawSymbols
         .split(",")
         .map((symbol) => symbol.trim())

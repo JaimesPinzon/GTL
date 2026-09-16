@@ -1,32 +1,21 @@
 export const symbols = [
-    "AAPL",
-    "MSFT",
-    "AMZN",
-    "GOOGL",
-    "NVDA",
-    "TSLA",
-    "META",
-    "BRK.B",
-    "JPM",
-    "JNJ",
+    "BTC/USD",
+    "ETH/USD",
     "QQQ",
     "DIA",
     "SPY",
-    "BTC/USD",
-    "ETH/USD",
     "NU",
-    "XRP/USD",
-    "ADA/USD",
-    "SOL/USD",
+    "NVDA",
 ] as const;
 
 export const trackedMarketSymbols = [...symbols];
+const trackedMarketSymbolSet = new Set<string>(trackedMarketSymbols);
 
 export function normalizeMarketSymbols(inputSymbols: string[]) {
     return [...new Set(
         inputSymbols
             .map((symbol) => String(symbol || "").trim().toUpperCase())
-            .filter(Boolean)
+            .filter((symbol) => trackedMarketSymbolSet.has(symbol))
     )];
 }
 

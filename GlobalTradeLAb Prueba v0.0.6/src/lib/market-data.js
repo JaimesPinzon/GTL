@@ -24,36 +24,13 @@ const readCurrentPreferences = () => {
 export const generateMarketData = (symbol, currency = 'USD', baseVolatility = 0.02, numPoints = 300) => {
   let basePrice;
   switch (symbol) {
-    case 'AAPL': basePrice = 215; break;
-    case 'MSFT': basePrice = 425; break;
-    case 'AMZN': basePrice = 180; break;
-    case 'GOOGL': basePrice = 165; break;
     case 'NVDA': basePrice = 910; break;
-    case 'TSLA': basePrice = 175; break;
-    case 'META': basePrice = 505; break;
-    case 'BRK.B': basePrice = 420; break;
-    case 'JPM': basePrice = 198; break;
-    case 'JNJ': basePrice = 155; break;
     case 'QQQ': basePrice = 445; break;
     case 'DIA': basePrice = 390; break;
     case 'SPY': basePrice = 520; break;
     case 'BTCUSD': basePrice = 60000; break;
     case 'ETHUSD': basePrice = 3500; break;
-    case 'ECOPETROL': basePrice = 2300; break;
-    case 'BANCOLOMBIA': basePrice = 35000; break;
-    case 'PFBCOLOM': basePrice = 29000; break;
-    case 'GRUPOARGOS': basePrice = 11000; break;
-    case 'GRUPOSURA': basePrice = 27000; break;
-    case 'PFGRUPSURAAAa': basePrice = 20000; break;
-    case 'ISA': basePrice = 17000; break;
-    case 'CEMARGOS': basePrice = 4500; break;
-    case 'CORFICOLCF': basePrice = 15000; break;
-    case 'GRUPOAVAL': basePrice = 600; break;
-    case 'CELSIA': basePrice = 3800; break;
     case 'NU': basePrice = 11.50; break;
-    case 'XRPUSD': basePrice = 0.52; break;
-    case 'ADAUSD': basePrice = 0.45; break;
-    case 'SOLUSD': basePrice = 150; break;
     default: basePrice = 100;
   }
 

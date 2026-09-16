@@ -58,7 +58,7 @@ export async function OPTIONS() {
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-    const symbol = searchParams.get("symbol")?.trim() ?? "AAPL";
+    const symbol = searchParams.get("symbol")?.trim() ?? "BTC/USD";
 
     const toSnapshotQuotePayload = (
         snapshot: LastCandleMarketSnapshot

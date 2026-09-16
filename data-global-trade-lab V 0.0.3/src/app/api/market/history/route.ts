@@ -133,7 +133,7 @@ export async function OPTIONS() {
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-    const rawSymbols = searchParams.get("symbols")?.trim() ?? "AAPL";
+    const rawSymbols = searchParams.get("symbols")?.trim() ?? "BTC/USD";
     const requestedTimeframe = searchParams.get("timeframe")?.trim() ?? "1M";
     const config = getConfigForTimeframe(requestedTimeframe);
     const limit = Number.parseInt(searchParams.get("limit") ?? "300", 10);

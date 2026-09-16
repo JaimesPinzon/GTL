@@ -1,28 +1,11 @@
 import { getMarketBackendUrl } from "@/lib/env";
 import { DEFAULT_TIMEFRAME, HISTORY_CACHE_TTL_MS, toBackendTimeframe } from "@/lib/market-timeframes";
 import { getCachedSupabaseAccessToken } from "@/lib/supabase";
+import { ENABLED_MARKET_ASSETS } from "@/lib/market-assets";
 
-const BACKEND_SYMBOL_MAP = {
-  AAPL: "AAPL",
-  MSFT: "MSFT",
-  AMZN: "AMZN",
-  GOOGL: "GOOGL",
-  NVDA: "NVDA",
-  TSLA: "TSLA",
-  META: "META",
-  "BRK.B": "BRK.B",
-  JPM: "JPM",
-  JNJ: "JNJ",
-  QQQ: "QQQ",
-  DIA: "DIA",
-  SPY: "SPY",
-  BTCUSD: "BTC/USD",
-  ETHUSD: "ETH/USD",
-  XRPUSD: "XRP/USD",
-  ADAUSD: "ADA/USD",
-  SOLUSD: "SOL/USD",
-  NU: "NU",
-};
+const BACKEND_SYMBOL_MAP = Object.fromEntries(
+  ENABLED_MARKET_ASSETS.map(({ id, backendSymbol }) => [id, backendSymbol])
+);
 
 const MARKET_HISTORY_CACHE_STORAGE_KEY = "gtl:market-history-cache";
 const MAX_MARKET_HISTORY_CACHE_ENTRIES = 30;
