@@ -71,6 +71,45 @@ test('flat provider candles are not converted into artificial green bars', () =>
   assert.deepEqual(repaired.map((candle) => candle.open), flatCandles.map((candle) => candle.open));
 });
 
+test('room trade submit sends a JSON object for auth-api serialization', async () => {
+  let receivedPath;
+  let receivedOptions;
+  const loader = createModuleLoader({
+    '@/lib/auth-api': {
+      fetchWithAuth: async (path, options) => {
+        receivedPath = path;
+        receivedOptions = options;
+        return {
+          ok: true,
+          account: { id: 'rm:room-1', roomId: 'room-1', userId: 'teacher-1', availableBalance: 9000 },
+          positions: [],
+          transactions: [],
+          result: { profitOrLoss: 0 },
+        };
+      },
+    },
+  });
+  const { submitRoomTrade } = loader('src/lib/room-trades.js');
+  const order = {
+    action: 'open',
+    roomId: '11111111-1111-4111-8111-111111111111',
+    requestId: '22222222-2222-4222-8222-222222222222',
+    symbol: 'BTCUSD',
+    type: 'BUY',
+    amount: 1000,
+    price: 79727.58,
+    justification: 'Integration test',
+    attachmentName: null,
+  };
+
+  await submitRoomTrade(order);
+
+  assert.equal(receivedPath, '/api/rooms/trades');
+  assert.equal(receivedOptions.method, 'POST');
+  assert.equal(typeof receivedOptions.body, 'object');
+  assert.equal(receivedOptions.body, order);
+});
+
 const account = (balance, roomId = 'room-1') => ({ id: `rm:${roomId}`, roomId, userId: 'student-1', availableBalance: balance, currency: 'USD' });
 const deferred = () => {
   let resolve;

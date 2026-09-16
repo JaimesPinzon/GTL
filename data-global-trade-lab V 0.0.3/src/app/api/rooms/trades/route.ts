@@ -15,6 +15,11 @@ const requirePositive = (value: unknown, maximum: number) => {
   }
   return value;
 };
+const isMissingTradingRpcError = (
+  error: { code: string; message: string } | null
+): error is { code: string; message: string } =>
+  Boolean(error && ['PGRST202', '42703', '42P01'].includes(error.code));
+
 async function actor(request: NextRequest) {
   validateAllowedOrigin(request);
   // A backend session is required. Never accept a user id or role from the body.
@@ -28,7 +33,7 @@ function checkDatabaseError(error: { code: string; message: string } | null) {
   if (error.code === '22023') throw new AuthHttpError(409, error.message);
   if (['22P02', '22003'].includes(error.code)) throw new AuthHttpError(400, 'El monto o la cotización no es válido.');
   console.error('room trade database error', { code: error.code, message: error.message });
-  if (['PGRST202', '42703', '42P01'].includes(error.code)) {
+  if (isMissingTradingRpcError(error)) {
     throw new AuthHttpError(503, 'El servidor de operaciones requiere la migración atomic_room_trading. No se guardó la operación.');
   }
   throw new AuthHttpError(500, 'No se pudo guardar la operación. Reintenta el mismo envío para comprobar su estado.');
@@ -99,6 +104,205 @@ async function readSnapshotFallback(roomId: string, userId: string, viewerId: st
     result: { profitOrLoss: 0 },
   };
 }
+
+type RoomTradeOrder =
+  | {
+      action: 'open';
+      type: 'BUY' | 'SELL';
+      symbol: string;
+      amount: number;
+      price: number;
+      justification: string;
+      attachmentName: string | null;
+    }
+  | {
+      action: 'close';
+      positionId: string;
+      price: number;
+    };
+
+type FallbackAccount = {
+  id: string;
+  roomId: string;
+  userId: string;
+  availableBalance: number;
+  blockedBalance: number;
+  totalBalance: number;
+  ownerType: 'group' | 'user';
+  ownerGroupId: string | null;
+};
+
+async function updateFallbackAccountBalance(account: FallbackAccount, next: { available: number; blocked: number; total: number }) {
+  if (account.ownerType === 'group' && account.ownerGroupId) {
+    const { error } = await supabaseAdmin
+      .from('room_group_members')
+      .update({
+        group_available_balance: next.available,
+        group_blocked_balance: next.blocked,
+        group_total_balance: next.total,
+      })
+      .eq('room_id', account.roomId)
+      .eq('group_id', account.ownerGroupId)
+      .eq('state', 'active');
+    checkDatabaseError(error);
+    return;
+  }
+
+  const memberId = String(account.id || '').replace(/^rm:/, '');
+  const { error } = await supabaseAdmin
+    .from('room_members')
+    .update({
+      individual_available_balance: next.available,
+      individual_blocked_balance: next.blocked,
+      individual_total_balance: next.total,
+    })
+    .eq('id', memberId)
+    .eq('room_id', account.roomId)
+    .eq('user_id', account.userId)
+    .eq('state', 'active');
+  checkDatabaseError(error);
+}
+
+async function executeRoomTradeFallback(userId: string, roomId: string, requestId: string, order: RoomTradeOrder) {
+  const snapshot = await readSnapshotFallback(roomId, userId, userId);
+  const account = snapshot.account as FallbackAccount;
+  const tradeTime = new Date().toISOString();
+  const positionId = `pos_${requestId}`;
+  const transactionId = `txn_${requestId}`;
+
+  if (order.action === 'open') {
+    if (account.availableBalance < order.amount) {
+      throw new AuthHttpError(409, 'Saldo disponible insuficiente para abrir la operacion.');
+    }
+
+    const positionRow = {
+      id: positionId,
+      room_id: roomId,
+      user_id: userId,
+      symbol: order.symbol,
+      type: order.type,
+      amount: order.amount,
+      entry_price: order.price,
+      open_date: tradeTime,
+      justification: order.justification,
+      attachment_name: order.attachmentName,
+    };
+    const transactionRow = {
+      id: transactionId,
+      room_id: roomId,
+      user_id: userId,
+      type: `OPEN_${order.type}`,
+      symbol: order.symbol,
+      amount: order.amount,
+      price: order.price,
+      date: tradeTime,
+      justification: order.justification,
+      attachment_name: order.attachmentName,
+    };
+
+    const { error: positionError } = await supabaseAdmin.from('positions').insert(positionRow);
+    if (positionError?.code === '23505') {
+      return readSnapshotFallback(roomId, userId, userId);
+    }
+    checkDatabaseError(positionError);
+
+    const { error: transactionError } = await supabaseAdmin.from('transactions').insert(transactionRow);
+    if (transactionError) {
+      await supabaseAdmin.from('positions').delete().eq('id', positionId).eq('room_id', roomId).eq('user_id', userId);
+      checkDatabaseError(transactionError);
+    }
+
+    try {
+      await updateFallbackAccountBalance(account, {
+        available: account.availableBalance - order.amount,
+        blocked: account.blockedBalance + order.amount,
+        total: account.totalBalance,
+      });
+    } catch (error) {
+      await Promise.all([
+        supabaseAdmin.from('transactions').delete().eq('id', transactionId).eq('room_id', roomId).eq('user_id', userId),
+        supabaseAdmin.from('positions').delete().eq('id', positionId).eq('room_id', roomId).eq('user_id', userId),
+      ]);
+      throw error;
+    }
+
+    return {
+      ...(await readSnapshotFallback(roomId, userId, userId)),
+      result: { profitOrLoss: 0 },
+    };
+  }
+
+  const { data: position, error: positionError } = await supabaseAdmin
+    .from('positions')
+    .select('*')
+    .eq('id', order.positionId)
+    .eq('room_id', roomId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  checkDatabaseError(positionError);
+  if (!position) throw new AuthHttpError(404, 'No se encontro la posicion a cerrar.');
+
+  const entryPrice = Number(position.entry_price);
+  const amount = Number(position.amount);
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !Number.isFinite(amount) || amount <= 0) {
+    throw new AuthHttpError(400, 'La posicion no tiene datos validos para cierre.');
+  }
+
+  const direction = position.type === 'BUY' ? 1 : -1;
+  const profitOrLoss = Math.round(((order.price - entryPrice) * amount * direction / entryPrice) * 100) / 100;
+  const releasedAmount = amount;
+  const transactionRow = {
+    id: transactionId,
+    room_id: roomId,
+    user_id: userId,
+    type: `CLOSE_${position.type}`,
+    symbol: position.symbol,
+    amount,
+    entry_price: entryPrice,
+    close_price: order.price,
+    profit_or_loss: profitOrLoss,
+    date: tradeTime,
+    justification: position.justification || '',
+    attachment_name: position.attachment_name || null,
+  };
+
+  const { error: transactionError } = await supabaseAdmin.from('transactions').insert(transactionRow);
+  if (transactionError?.code === '23505') {
+    return readSnapshotFallback(roomId, userId, userId);
+  }
+  checkDatabaseError(transactionError);
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('positions')
+    .delete()
+    .eq('id', position.id)
+    .eq('room_id', roomId)
+    .eq('user_id', userId);
+  if (deleteError) {
+    await supabaseAdmin.from('transactions').delete().eq('id', transactionId).eq('room_id', roomId).eq('user_id', userId);
+    checkDatabaseError(deleteError);
+  }
+
+  try {
+    const nextAvailable = account.availableBalance + releasedAmount + profitOrLoss;
+    const nextBlocked = Math.max(0, account.blockedBalance - releasedAmount);
+    await updateFallbackAccountBalance(account, {
+      available: nextAvailable,
+      blocked: nextBlocked,
+      total: nextAvailable + nextBlocked,
+    });
+  } catch (error) {
+    await supabaseAdmin.from('positions').insert(position);
+    await supabaseAdmin.from('transactions').delete().eq('id', transactionId).eq('room_id', roomId).eq('user_id', userId);
+    throw error;
+  }
+
+  return {
+    ...(await readSnapshotFallback(roomId, userId, userId)),
+    result: { profitOrLoss },
+  };
+}
+
 export const OPTIONS = authOptionsResponse;
 export async function GET(request: NextRequest) {
   return withAuthErrors(request, async () => {
@@ -108,7 +312,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabaseAdmin.rpc('room_trading_snapshot', {
       p_room_id: roomId, p_user_id: userId, p_viewer_id: user.id,
     });
-    if (error && ['PGRST202', '42703', '42P01'].includes(error.code)) {
+    if (isMissingTradingRpcError(error)) {
       console.warn('room trade snapshot fallback', { code: error.code, message: error.message });
       const fallback = await readSnapshotFallback(roomId, userId, user.id);
       const response = authJson(request, { ok: true, ...fallback });
@@ -130,7 +334,7 @@ export async function POST(request: NextRequest) {
     const roomId = requireId(body.roomId);
     const requestId = requireId(body.requestId);
     const price = requirePositive(body.price, 10000000000);
-    let order;
+    let order: RoomTradeOrder;
     if (body.action === 'open') {
       if (!['BUY', 'SELL'].includes(body.type) || typeof body.symbol !== 'string' || !/^[A-Z0-9][A-Z0-9._/-]{0,39}$/.test(body.symbol)
         || typeof body.justification !== 'string' || !body.justification.trim() || body.justification.length > 5000
@@ -147,6 +351,13 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabaseAdmin.rpc('execute_room_trade', {
       p_user_id: user.id, p_room_id: roomId, p_request_id: requestId, p_order: order,
     });
+    if (isMissingTradingRpcError(error)) {
+      console.warn('room trade execute fallback', { code: error.code, message: error.message });
+      const fallback = await executeRoomTradeFallback(user.id, roomId, requestId, order);
+      const response = authJson(request, { ok: true, ...fallback });
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
     checkDatabaseError(error);
     const response = authJson(request, { ok: true, ...data });
     response.headers.set('Cache-Control', 'no-store');

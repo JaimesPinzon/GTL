@@ -29,6 +29,6 @@ export async function fetchRoomPortfolio(userId, roomId) {
 export async function submitRoomTrade(order) {
   // One authenticated request; no profiles upsert, client balance write or full-portfolio replacement.
   return mapSnapshot(await fetchWithAuth('/api/rooms/trades', {
-    method: 'POST', credentials: 'omit', body: JSON.stringify(order),
+    method: 'POST', credentials: 'omit', body: order,
   }));
 }
