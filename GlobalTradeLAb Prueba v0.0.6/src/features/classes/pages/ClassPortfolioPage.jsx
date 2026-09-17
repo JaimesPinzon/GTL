@@ -1,5 +1,5 @@
 import React from "react";
-import { Eye, WalletCards } from "lucide-react";
+import { WalletCards } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import StudentPortfolioPage from "@/components/Students/StudentPortfolioPage";
@@ -23,11 +23,6 @@ const ClassPortfolioPage = () => {
               ? t("classes.workspace.portfolios.teacherDescription")
               : t("classes.workspace.portfolios.studentDescription")}
           </p>
-          {user?.role === "teacher" ? (
-            <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-blue-400/15 bg-blue-400/[0.06] px-3 py-1.5 text-xs text-blue-300">
-              <Eye className="h-3.5 w-3.5" /> {t("classes.workspace.portfolios.supervisionMode")}
-            </div>
-          ) : null}
         </div>
 
         {user?.role === "teacher" ? <TeacherPortfolio /> : <StudentPortfolioPage />}

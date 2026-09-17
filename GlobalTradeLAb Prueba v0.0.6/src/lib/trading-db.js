@@ -1,6 +1,6 @@
 ﻿import { getCachedSupabaseAccessToken, supabase } from "@/lib/supabase";
 import { getBackendUrl } from "@/lib/env";
-import { getAccessToken } from "@/lib/auth-api";
+import { fetchWithAuth, getAccessToken } from "@/lib/auth-api";
 import { fetchRoomPortfolio } from "@/lib/room-trades";
 
 let isBackendLeaveEndpointUnavailable = false;
@@ -1833,32 +1833,12 @@ const resolveEffectiveRoomMemberBalance = async ({ roomId, userId }) => {
 };
 
 export async function fetchRoomMembers(roomId) {
-  const { data, error } = await supabase
-    .from("room_members")
-    .select(
-      "id, room_id, user_id, role_in_room, state, joined_at, individual_available_balance, individual_blocked_balance, individual_total_balance, individual_currency, profile:profiles(*)"
-    )
-    .eq("room_id", roomId)
-    .eq("state", "active")
-    .order("joined_at", { ascending: true });
-
-  if (error) {
-    throw error;
-  }
-
-  return data.map((entry) => ({
-    id: entry.id,
-    roomId: entry.room_id,
-    userId: entry.user_id,
-    roleInRoom: entry.role_in_room,
-    state: entry.state,
-    joinedAt: entry.joined_at,
-    individualAvailableBalance: Number(entry.individual_available_balance ?? 0),
-    individualBlockedBalance: Number(entry.individual_blocked_balance ?? 0),
-    individualTotalBalance: Number(entry.individual_total_balance ?? 0),
-    individualCurrency: entry.individual_currency || "USD",
-    profile: mapProfile(entry.profile),
-  }));
+  if (!roomId) return [];
+  const payload = await fetchWithAuth(`/api/rooms/members?roomId=${encodeURIComponent(roomId)}`, {
+    method: "GET",
+    credentials: "omit",
+  });
+  return Array.isArray(payload?.members) ? payload.members : [];
 }
 
 export async function fetchRoomSimAccounts(roomId) {

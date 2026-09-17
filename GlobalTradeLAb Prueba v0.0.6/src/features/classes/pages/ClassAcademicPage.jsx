@@ -75,9 +75,19 @@ const ClassAcademicPage = () => {
     });
   }, [academicSection, activities, query]);
 
-  const students = user?.role === "teacher"
-    ? studentsInClass
-    : roomMembers.filter((member) => member.roleInRoom === "student");
+  const rosterStudents = useMemo(
+    () => roomMembers
+      .filter((member) => String(member.roleInRoom || "").toLowerCase() === "student")
+      .map((member) => ({
+        ...(member.profile || {}),
+        membershipId: member.id,
+        userId: member.userId,
+        membershipState: member.state,
+        joinedAt: member.joinedAt,
+      })),
+    [roomMembers]
+  );
+  const students = rosterStudents.length > 0 ? rosterStudents : studentsInClass;
 
   if (!validSection) {
     return <Navigate to={buildClassRoute(activeClass.id, CLASS_CONTEXT_PATHS.academicActivities)} replace />;
@@ -101,7 +111,7 @@ const ClassAcademicPage = () => {
           {students.length ? (
             <div className="divide-y divide-white/8">
               {students.map((student) => (
-                <div key={student.id || student.userId} className="flex items-center justify-between gap-4 px-5 py-4">
+                <div key={student.id || student.userId || student.membershipId} className="flex items-center justify-between gap-4 px-5 py-4">
                   <div className="min-w-0">
                     <p className="truncate font-medium text-white">{student.name || student.profile?.name || student.profile?.email || t("classes.common.student")}</p>
                     <p className="mt-1 truncate text-xs text-slate-500">{student.email || student.profile?.email || t("classes.common.noVisibleEmail")}</p>
