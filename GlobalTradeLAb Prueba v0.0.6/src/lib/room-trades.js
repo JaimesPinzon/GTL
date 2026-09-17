@@ -26,6 +26,19 @@ export async function fetchRoomPortfolio(userId, roomId) {
   return mapSnapshot(await fetchWithAuth(`/api/rooms/trades?${params}`, { method: 'GET', credentials: 'omit' }));
 }
 
+export async function fetchPortfolioRanking(roomId, { metric = "return_pct", period = "class", groupId = "all" } = {}) {
+  if (!roomId) throw new Error("Sala no disponible.");
+  const params = new URLSearchParams({ roomId, metric, period, groupId });
+  const payload = await fetchWithAuth(`/api/rooms/portfolio-ranking?${params}`, {
+    method: "GET",
+    credentials: "omit",
+  });
+  if (!payload?.ok || !Array.isArray(payload.topThree) || !Array.isArray(payload.rows)) {
+    throw new Error("El servidor no devolvió un ranking válido.");
+  }
+  return payload;
+}
+
 export async function submitRoomTrade(order) {
   // One authenticated request; no profiles upsert, client balance write or full-portfolio replacement.
   return mapSnapshot(await fetchWithAuth('/api/rooms/trades', {

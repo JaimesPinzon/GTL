@@ -32,8 +32,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate, formatPercentage } from "@/lib/market-data";
 import { getPortfolioAnalytics } from "@/features/classes/lib/portfolio-analytics";
+import PortfolioRanking from "@/features/classes/components/PortfolioRanking";
 
-const tabs = ["summary", "positions", "operations", "performance", "risk"];
+const tabs = ["summary", "positions", "operations", "performance", "risk", "ranking"];
 const allocationColors = ["#3b82f6", "#22c55e", "#a855f7", "#f59e0b", "#06b6d4", "#f43f5e"];
 
 const toneClass = (value) => (value >= 0 ? "text-emerald-400" : "text-rose-400");
@@ -158,6 +159,7 @@ const PortfolioAnalytics = ({
   currency = "USD",
   onOpenAsset,
   compactHeader = false,
+  roomId,
 }) => {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState("summary");
@@ -275,6 +277,8 @@ const PortfolioAnalytics = ({
       {activeTab === "risk" ? (
         <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><MetricCard icon={Activity} label={t("portfolioCenter.risk.exposure")} value={formatPercentage(analytics.exposurePercentage)} detail={formatCurrency(analytics.grossExposure, currency)} /><MetricCard icon={CircleDollarSign} label={t("portfolioCenter.risk.cash")} value={formatPercentage(analytics.cashPercentage)} detail={formatCurrency(availableBalance, currency)} /><MetricCard icon={ShieldAlert} label={t("portfolioCenter.risk.largestPosition")} value={analytics.largestPosition?.symbol || "—"} detail={analytics.largestPosition ? formatPercentage(analytics.largestPosition.weight) : t("portfolioCenter.risk.noPosition")} /><MetricCard icon={Coins} label={t("portfolioCenter.risk.assetCount")} value={analytics.positionRows.length} detail={t("portfolioCenter.risk.openAssets")} /><MetricCard icon={TrendingDown} label={t("portfolioCenter.risk.maximumDrawdown")} value={formatPercentage(analytics.maximumDrawdown)} detail={t("portfolioCenter.risk.estimatedFromHistory")} tone={analytics.maximumDrawdown < 0 ? "negative" : "neutral"} /></div><Card className="glass-card border-white/[0.08]"><CardHeader><CardTitle>{t("portfolioCenter.risk.concentration")}</CardTitle><p className="text-sm text-slate-500">{t("portfolioCenter.risk.concentrationDescription")}</p></CardHeader><CardContent>{analytics.positionRows.length ? <div className="space-y-4">{concentratedPositions.map((position) => <div key={position.id}><div className="mb-2 flex items-center justify-between text-sm"><span className="font-medium text-slate-200">{position.symbol}</span><span className="text-slate-400">{formatPercentage(position.weight)}</span></div><div className="h-2 overflow-hidden rounded-full bg-white/[0.05]"><div className={`h-full rounded-full ${position.weight > 35 ? "bg-rose-500" : position.weight > 20 ? "bg-amber-500" : "bg-blue-500"}`} style={{ width: `${Math.min(position.weight, 100)}%` }} /></div></div>)}</div> : <EmptyState icon={ShieldAlert} title={t("portfolioCenter.empty.noRiskTitle")} description={t("portfolioCenter.empty.noRiskDescription")} />}</CardContent></Card></div>
       ) : null}
+
+      {activeTab === "ranking" && roomId ? <PortfolioRanking roomId={roomId} /> : null}
 
       <Dialog open={Boolean(selectedPosition)} onOpenChange={(open) => !open && setSelectedPosition(null)}>
         <DialogContent className="glass-card sm:max-w-[520px]">

@@ -42,6 +42,7 @@ const StudentPortfolioPage = () => {
       symbols={symbols || []}
       currency={currency}
       onOpenAsset={openAssetInClass}
+      roomId={activeRoom?.id}
     />
   );
 };

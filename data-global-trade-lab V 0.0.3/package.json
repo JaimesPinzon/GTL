@@ -12,7 +12,8 @@
     "test:financial-lab": "node --experimental-strip-types --test --test-isolation=none scripts/test-financial-lab-engine.mjs scripts/test-financial-lab-migration.mjs",
     "test:news": "node --experimental-strip-types --test --test-isolation=none scripts/test-news-analysis.mjs scripts/test-news-migration.mjs scripts/test-news-phase3-migration.mjs",
     "test:learning": "node --experimental-strip-types --test --test-isolation=none scripts/test-learning-migration.mjs",
-    "test:presence": "node --test --test-isolation=none scripts/test-user-presence-migration.mjs"
+    "test:presence": "node --test --test-isolation=none scripts/test-user-presence-migration.mjs",
+    "test:portfolio-ranking": "node --experimental-strip-types --test --test-isolation=none scripts/test-portfolio-ranking.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
