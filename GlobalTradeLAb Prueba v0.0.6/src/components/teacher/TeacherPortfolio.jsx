@@ -105,12 +105,16 @@ const TeacherPortfolio = () => {
   const { toast } = useToast();
   const {
     activeRoom,
+    activeRoomAccount,
     adjustStudentBalance,
+    balance,
     getCurrentPrice,
     openAssetInClass,
     refreshActiveRoomData,
     studentsInClass,
     symbols,
+    transactions,
+    user,
   } = useTradingWorkspace();
   const [selectedStudentId, setSelectedStudentId] = useState("class");
   const [query, setQuery] = useState("");
@@ -157,6 +161,7 @@ const TeacherPortfolio = () => {
 
   const classAnalytics = useMemo(() => getClassPortfolioAnalytics(rows.map((row) => row.analytics)), [rows]);
   const selectedStudent = rows.find((student) => student.id === selectedStudentId) || null;
+  const isViewingOwnPortfolio = selectedStudentId === "me";
   const visibleRows = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return rows
@@ -216,17 +221,18 @@ const TeacherPortfolio = () => {
         </div>
         <select id="portfolio-selector" value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)} className="min-w-[260px] rounded-xl border border-white/10 bg-[#0b1220] px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-500/50">
           <option value="class">{t("portfolioCenter.teacher.classView")}</option>
+          <option value="me">{t("portfolioCenter.myPortfolio")}</option>
           {rows.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}
         </select>
       </div>
 
-      {selectedStudent ? (
+      {selectedStudent || isViewingOwnPortfolio ? (
         <div className="space-y-6">
           <div className="flex flex-col gap-4 rounded-3xl border border-blue-400/15 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,.16),transparent_42%),rgba(15,23,42,.65)] p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4"><Button variant="outline" size="icon" onClick={() => setSelectedStudentId("class")} aria-label={t("portfolioCenter.teacher.backToClass")}><ArrowLeft className="h-4 w-4" /></Button><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-400">{t("portfolioCenter.teacher.individualView")}</p><h3 className="mt-1 text-2xl font-semibold text-white">{selectedStudent.name}</h3><p className="text-sm text-slate-500">{selectedStudent.email}</p></div></div>
-            <Button variant="outline" onClick={() => handleOpenAdjustment(selectedStudent)}><WalletCards className="mr-2 h-4 w-4" />{t("classes.actions.adjustBalance")}</Button>
+            <div className="flex items-center gap-4"><Button variant="outline" size="icon" onClick={() => setSelectedStudentId("class")} aria-label={t("portfolioCenter.teacher.backToClass")}><ArrowLeft className="h-4 w-4" /></Button><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-400">{t(isViewingOwnPortfolio ? "portfolioCenter.myPortfolio" : "portfolioCenter.teacher.individualView")}</p><h3 className="mt-1 text-2xl font-semibold text-white">{isViewingOwnPortfolio ? user?.name : selectedStudent?.name}</h3><p className="text-sm text-slate-500">{isViewingOwnPortfolio ? user?.email : selectedStudent?.email}</p></div></div>
+            {!isViewingOwnPortfolio ? <Button variant="outline" onClick={() => handleOpenAdjustment(selectedStudent)}><WalletCards className="mr-2 h-4 w-4" />{t("classes.actions.adjustBalance")}</Button> : null}
           </div>
-          <PortfolioAnalytics ownerName={selectedStudent.name} availableBalance={selectedStudent.balance || 0} initialCapital={initialCapital} positions={selectedStudent.positions || []} transactions={selectedStudent.transactions || []} getCurrentPrice={getCurrentPrice} symbols={symbols} currency={selectedStudent.roomAccount?.currency || currency} onOpenAsset={openAssetInClass} compactHeader />
+          <PortfolioAnalytics ownerName={isViewingOwnPortfolio ? user?.name : selectedStudent?.name} availableBalance={isViewingOwnPortfolio ? activeRoomAccount?.availableBalance ?? balance ?? 0 : selectedStudent?.balance || 0} initialCapital={initialCapital} positions={isViewingOwnPortfolio ? positions || [] : selectedStudent?.positions || []} transactions={isViewingOwnPortfolio ? transactions || [] : selectedStudent?.transactions || []} getCurrentPrice={getCurrentPrice} symbols={symbols} currency={isViewingOwnPortfolio ? activeRoomAccount?.currency || currency : selectedStudent?.roomAccount?.currency || currency} onOpenAsset={openAssetInClass} compactHeader={!isViewingOwnPortfolio} />
         </div>
       ) : (
         <>
@@ -258,3 +264,4 @@ const TeacherPortfolio = () => {
 };
 
 export default TeacherPortfolio;
+    positions,

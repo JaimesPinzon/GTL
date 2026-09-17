@@ -61,6 +61,7 @@ import {
 import { mergeRoomWithSettings, persistRoomSettings } from "@/lib/room-settings";
 import { resolveUserRoomAccount } from "@/lib/room-balance";
 import { ENABLED_MARKET_ASSETS } from "@/lib/market-assets";
+import { reportUserPresence } from "@/lib/presence-api";
 
 const TradingContext = createContext({});
 const SESSION_STORAGE_KEYS = [
@@ -489,6 +490,36 @@ export const TradingProvider = ({ children }) => {
       window.removeEventListener("offline", syncBrowserNetworkState);
     };
   }, [t]);
+
+  useEffect(() => {
+    if (!currentUser?.id || typeof window === "undefined") return undefined;
+    let disposed = false;
+
+    const heartbeat = async () => {
+      if (disposed || document.visibilityState === "hidden" || navigator.onLine === false) return;
+      try {
+        await reportUserPresence(activeRoomId || null);
+      } catch (error) {
+        if (!disposed) console.warn("presence heartbeat unavailable", error?.message || error);
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void heartbeat();
+    };
+
+    void heartbeat();
+    const intervalId = window.setInterval(() => void heartbeat(), 30_000);
+    window.addEventListener("online", heartbeat);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("online", heartbeat);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [activeRoomId, currentUser?.id]);
 
   const clearSessionState = useCallback(() => {
     isLoggingOutRef.current = true;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { BookOpenCheck, CalendarClock, FileCheck2, GraduationCap, MessageSquare, Search, Users } from "lucide-react";
+import { BookOpenCheck, CalendarClock, Clock3, FileCheck2, GraduationCap, MessageSquare, Search, Users, Wifi, WifiOff } from "lucide-react";
 import { NavLink, Navigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -9,7 +9,8 @@ import ClassGroupsDialog from "@/features/classes/components/ClassGroupsDialog";
 import { useClassContext } from "@/features/classes/context/ClassContext";
 import { useTradingContext } from "@/contexts/TradingContext";
 import { CLASS_CONTEXT_PATHS, buildClassRoute } from "@/lib/routes";
-import { fetchRoomActivities, fetchRoomGradebook } from "@/lib/trading-db";
+import { fetchRoomActivities, fetchRoomGradebook, fetchRoomMembers } from "@/lib/trading-db";
+import { formatDate } from "@/lib/market-data";
 
 const sections = [
   ["activities", CalendarClock],
@@ -39,6 +40,7 @@ const ClassAcademicPage = () => {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
+  const [academicRoster, setAcademicRoster] = useState(null);
 
   const validSection = sections.some(([id]) => id === academicSection);
 
@@ -66,6 +68,30 @@ const ClassAcademicPage = () => {
     return () => { mounted = false; };
   }, [academicSection, activeClass?.id, user?.role, validSection]);
 
+  useEffect(() => {
+    if (academicSection !== "students" || !activeClass?.id) {
+      setAcademicRoster(null);
+      return undefined;
+    }
+
+    let mounted = true;
+    const refreshRoster = async () => {
+      try {
+        const members = await fetchRoomMembers(activeClass.id);
+        if (mounted) setAcademicRoster(members);
+      } catch (error) {
+        console.warn("academic roster refresh unavailable", error?.message || error);
+      }
+    };
+
+    void refreshRoster();
+    const intervalId = window.setInterval(() => void refreshRoster(), 30_000);
+    return () => {
+      mounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, [academicSection, activeClass?.id]);
+
   const visibleActivities = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return activities.filter((activity) => {
@@ -76,7 +102,7 @@ const ClassAcademicPage = () => {
   }, [academicSection, activities, query]);
 
   const rosterStudents = useMemo(
-    () => roomMembers
+    () => (academicRoster || roomMembers)
       .filter((member) => String(member.roleInRoom || "").toLowerCase() === "student")
       .map((member) => ({
         ...(member.profile || {}),
@@ -84,8 +110,9 @@ const ClassAcademicPage = () => {
         userId: member.userId,
         membershipState: member.state,
         joinedAt: member.joinedAt,
+        presence: member.presence || null,
       })),
-    [roomMembers]
+    [academicRoster, roomMembers]
   );
   const students = rosterStudents.length > 0 ? rosterStudents : studentsInClass;
 
@@ -111,12 +138,29 @@ const ClassAcademicPage = () => {
           {students.length ? (
             <div className="divide-y divide-white/8">
               {students.map((student) => (
-                <div key={student.id || student.userId || student.membershipId} className="flex items-center justify-between gap-4 px-5 py-4">
+                <div key={student.id || student.userId || student.membershipId} className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="truncate font-medium text-white">{student.name || student.profile?.name || student.profile?.email || t("classes.common.student")}</p>
                     <p className="mt-1 truncate text-xs text-slate-500">{student.email || student.profile?.email || t("classes.common.noVisibleEmail")}</p>
                   </div>
-                  <span className="rounded-full bg-emerald-400/8 px-3 py-1 text-xs text-emerald-300">{t("classes.common.active")}</span>
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${student.presence?.isOnline ? "bg-emerald-400/10 text-emerald-300" : "bg-slate-400/10 text-slate-400"}`}>
+                      {student.presence?.isOnline ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+                      {t(student.presence?.isOnline ? "classes.workspace.academic.online" : "classes.workspace.academic.offline")}
+                    </span>
+                    {student.presence?.isOnline ? (
+                      <span className={`rounded-full px-3 py-1 text-xs ${student.presence?.isInRoom ? "bg-blue-400/10 text-blue-300" : "bg-white/[0.05] text-slate-400"}`}>
+                        {t(student.presence?.isInRoom ? "classes.workspace.academic.inThisClass" : "classes.workspace.academic.outsideThisClass")}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                        <Clock3 className="h-3.5 w-3.5" />
+                        {student.presence?.lastSeenAt
+                          ? t("classes.workspace.academic.lastConnection", { date: formatDate(student.presence.lastSeenAt) })
+                          : t("classes.workspace.academic.neverConnected")}
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

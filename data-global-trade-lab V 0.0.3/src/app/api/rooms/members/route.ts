@@ -48,8 +48,24 @@ export async function GET(request: Request) {
     );
   }
 
+  const userIds = (data || []).map((entry) => entry.user_id);
+  const presenceResult = userIds.length
+    ? await supabaseAdmin
+        .from("user_presence")
+        .select("user_id, active_room_id, last_seen_at")
+        .in("user_id", userIds)
+    : { data: [], error: null };
+
+  const presenceByUserId = new Map(
+    (presenceResult.data || []).map((presence) => [presence.user_id, presence])
+  );
+  const onlineCutoff = Date.now() - 90_000;
+
   const members = (data || []).map((entry) => {
     const profile = Array.isArray(entry.profile) ? entry.profile[0] : entry.profile;
+    const presence = presenceByUserId.get(entry.user_id);
+    const lastSeenAt = presence?.last_seen_at || null;
+    const isOnline = Boolean(lastSeenAt && new Date(lastSeenAt).getTime() >= onlineCutoff);
     return {
       id: entry.id,
       roomId: entry.room_id,
@@ -61,6 +77,12 @@ export async function GET(request: Request) {
       individualBlockedBalance: Number(entry.individual_blocked_balance ?? 0),
       individualTotalBalance: Number(entry.individual_total_balance ?? 0),
       individualCurrency: entry.individual_currency || "USD",
+      presence: {
+        isOnline,
+        isInRoom: isOnline && presence?.active_room_id === roomId,
+        activeRoomId: isOnline ? presence?.active_room_id || null : null,
+        lastSeenAt,
+      },
       profile: profile
         ? {
             id: profile.user_id,
