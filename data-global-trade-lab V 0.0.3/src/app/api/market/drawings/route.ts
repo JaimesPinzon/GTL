@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { canManageRoom } from "@/app/api/rooms/_shared";
 import { createAuthenticatedSupabaseClient } from "@/app/utils/supabase/auth-user";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
+import { getAuthenticatedUser } from "@/modules/auth";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -51,11 +52,17 @@ async function requireUser(request: Request) {
         return { error: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders }) };
     }
 
+    // The GTL access token is the canonical browser session. Keep the Supabase
+    // token fallback so frontend/backend deployments can be rolled out safely.
+    try {
+        const user = await getAuthenticatedUser(accessToken);
+        return { user };
+    } catch {
+        // Fall through to validate a legacy/direct Supabase access token.
+    }
+
     const supabase = createAuthenticatedSupabaseClient(accessToken);
-    const {
-        data: { user },
-        error,
-    } = await supabase.auth.getUser();
+    const { data: { user }, error } = await supabase.auth.getUser();
 
     if (error || !user) {
         return { error: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders }) };

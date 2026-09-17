@@ -1,6 +1,6 @@
 import { getMarketBackendUrl } from "@/lib/env";
 import { DEFAULT_TIMEFRAME, HISTORY_CACHE_TTL_MS, toBackendTimeframe } from "@/lib/market-timeframes";
-import { getCachedSupabaseAccessToken, supabase } from "@/lib/supabase";
+import { getAccessToken as getBackendAccessToken } from "@/lib/auth-api";
 import { ENABLED_MARKET_ASSETS } from "@/lib/market-assets";
 
 const BACKEND_SYMBOL_MAP = Object.fromEntries(
@@ -13,18 +13,15 @@ const marketHistoryCache = new Map();
 const pendingMarketHistoryRequests = new Map();
 let hasLoadedPersistedHistoryCache = false;
 
-const resolveSupabaseAccessToken = async (accessToken = null) => {
+const resolveDrawingAccessToken = async (accessToken = null) => {
   if (accessToken) return accessToken;
 
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-
-  const sessionToken = data?.session?.access_token || getCachedSupabaseAccessToken();
-  if (!sessionToken) {
-    throw new Error("No authenticated Supabase session is available for drawing persistence");
+  const backendAccessToken = await getBackendAccessToken();
+  if (!backendAccessToken) {
+    throw new Error("No authenticated GTL session is available for drawing persistence");
   }
 
-  return sessionToken;
+  return backendAccessToken;
 };
 
 export const getBackendSymbol = (symbol) => BACKEND_SYMBOL_MAP[symbol] ?? null;
@@ -407,7 +404,7 @@ export const getMarketDrawingsFromBackend = async ({
     return [];
   }
 
-  const resolvedAccessToken = await resolveSupabaseAccessToken(accessToken);
+  const resolvedAccessToken = await resolveDrawingAccessToken(accessToken);
 
   const backendTimeframe = toBackendTimeframe(timeframe);
   const classQuery = classId ? `&classId=${encodeURIComponent(classId)}` : "";
@@ -448,7 +445,7 @@ export const saveMarketDrawingsToBackend = async ({
     return null;
   }
 
-  const resolvedAccessToken = await resolveSupabaseAccessToken(accessToken);
+  const resolvedAccessToken = await resolveDrawingAccessToken(accessToken);
 
   const backendTimeframe = toBackendTimeframe(timeframe);
   const classQuery = classId ? `&classId=${encodeURIComponent(classId)}` : "";
