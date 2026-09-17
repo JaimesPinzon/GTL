@@ -27,18 +27,25 @@ const OAUTH_BRIDGE_RETRY_ATTEMPTS = 24;
 const OAUTH_BRIDGE_RETRY_DELAY_MS = 250;
 const CSRF_COOKIE_NAMES = ["__Host-gtl_csrf", "gtl_csrf"];
 
-const readCookieValue = (name) => {
+const clearLegacyFrontendCsrfCookies = () => {
   if (typeof document === "undefined") {
-    return "";
+    return;
   }
 
-  const cookies = String(document.cookie || "").split("; ");
-  const match = cookies.find((entry) => entry.startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.slice(name.length + 1)) : "";
+  const secureAttribute =
+    typeof window !== "undefined" && window.location?.protocol === "https:"
+      ? "; Secure"
+      : "";
+
+  CSRF_COOKIE_NAMES.forEach((name) => {
+    document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax${secureAttribute}`;
+  });
+
+  // A legacy version used the auth path for the non-Host cookie.
+  document.cookie = `gtl_csrf=; Path=/api/auth; Max-Age=0; SameSite=Lax${secureAttribute}`;
 };
 
-const readCsrfCookie = () =>
-  CSRF_COOKIE_NAMES.map(readCookieValue).find(Boolean) || "";
+clearLegacyFrontendCsrfCookies();
 
 const decodeJwtPayload = (token) => {
   if (typeof token !== "string") {
@@ -282,13 +289,6 @@ const request = async (
   }
 
   if (csrf) {
-    const cookieCsrfToken = readCsrfCookie();
-    if (cookieCsrfToken && cookieCsrfToken !== getCsrfToken()) {
-      setCsrfToken(cookieCsrfToken);
-    } else if (!cookieCsrfToken && getCsrfToken()) {
-      setCsrfToken("");
-    }
-
     const currentCsrfToken = getCsrfToken();
     if (!currentCsrfToken) {
       await bootstrapCsrf();
@@ -311,8 +311,15 @@ const request = async (
       throw error;
     }
 
-    setCsrfToken("");
-    await bootstrapCsrf();
+    const failedCsrfToken = String(headers["X-CSRF-Token"] || "");
+    const latestCsrfToken = getCsrfToken();
+
+    // Another concurrent request may already have renewed the token. Reuse it
+    // instead of rotating the server-side CSRF value again and invalidating its retry.
+    if (!latestCsrfToken || latestCsrfToken === failedCsrfToken) {
+      setCsrfToken("");
+      await bootstrapCsrf();
+    }
 
     return request(path, {
       method: normalizedMethod,
@@ -341,10 +348,15 @@ export const bootstrapCsrf = async () => {
     csrfBootstrapPromise ||
     request("/api/auth/csrf")
       .then((payload) => {
+        const nextCsrfToken = String(payload?.csrfToken || "");
+        if (!nextCsrfToken) {
+          throw new Error("The auth backend returned an empty CSRF token.");
+        }
+
         csrfBootstrapPromise = null;
         csrfFailureCooldownUntil = 0;
-        setCsrfToken(payload.csrfToken);
-        return payload.csrfToken;
+        setCsrfToken(nextCsrfToken);
+        return nextCsrfToken;
       })
       .catch((error) => {
         csrfBootstrapPromise = null;
@@ -617,18 +629,15 @@ export const registerWithPassword = async ({ name, email, password, role }) => {
 };
 
 export const refreshSession = async (source = "refresh") => {
-  refreshPromise =
-    refreshPromise ||
-    request("/api/auth/refresh", {
+  if (!refreshPromise) {
+    refreshPromise = request("/api/auth/refresh", {
       method: "POST",
       csrf: true,
     })
       .then((payload) => {
-        refreshPromise = null;
         return applySessionPayload(payload, source);
       })
       .catch((error) => {
-        refreshPromise = null;
         clearAccessToken();
         if (error?.status === 401 || error?.status === 403) {
           setCsrfToken("");
@@ -644,7 +653,11 @@ export const refreshSession = async (source = "refresh") => {
           emitAuthEvent({ type: "logged-out", source: "refresh-failed" });
         }
         throw error;
+      })
+      .finally(() => {
+        refreshPromise = null;
       });
+  }
 
   return refreshPromise;
 };

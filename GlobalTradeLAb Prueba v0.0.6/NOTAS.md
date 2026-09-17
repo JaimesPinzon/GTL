@@ -345,3 +345,13 @@
 * Correccion: Se estabilizo el flujo de union a sala para evitar errores falsos posteriores a una vinculacion ya exitosa.
 * Correccion: Se mantiene operativa la autenticacion con Google con comportamiento parcial, pendiente de estabilizacion completa en callback y restauracion.
 >>>>>>> 65fcd81 (Cambio PC1)
+
+20260917
+
+* Correccion: Se retiro la lectura de `document.cookie` como fuente de verdad CSRF; el frontend conserva exclusivamente el token entregado por JSON y deja las cookies bajo control del navegador.
+* Correccion: Se agrego recuperacion CSRF compartida para impedir que solicitudes concurrentes roten el token entre si durante un reintento.
+* Cambio: Se hizo explicito el single-flight de `refreshSession` y su liberacion en `finally` para deduplicar renovaciones concurrentes.
+* Eliminacion: Se agrego limpieza de cookies CSRF heredadas en el dominio del frontend sin acceder a la cookie del backend.
+* Cambio: Se preparo `.env.production` para consumir `https://api.globaltradelab.site` como dominio propio del backend.
+* Agregacion: Se incorporaron pruebas automatizadas de cookie heredada, refresh concurrente y recuperacion CSRF simultanea, junto con un verificador de produccion.
+* Correccion: Se validaron 3 pruebas de autenticacion, 27 pruebas operativas y compilacion completa de frontend y backend.

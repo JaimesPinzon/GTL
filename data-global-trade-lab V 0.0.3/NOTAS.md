@@ -212,3 +212,9 @@
 * Cambio: Se consolidó la definición SQL de `public.candles` con indice específico sobre `(instrument_id, timeframe, open_time desc)` para mejorar la lectura de series y estabilizar consultas por intervalo.
 * Agregacion: Se dejo la configuración del cron en `private.market_cron_config` para evitar depender de `ALTER DATABASE` y mantener la URL del backend y el secreto en una tabla operativa del proyecto.
 * Eliminacion: Se desecho el esquema de refresco no controlado y la dependencia de tareas cron no validadas, dejando el sistema orientado a sincronizacion programada y segura.
+
+20260917
+
+* Cambio: Se documento la configuracion de produccion para servir autenticacion desde `https://api.globaltradelab.site` con cookies host-only, `Secure` y `SameSite=Lax`.
+* Seguridad: Se mantuvo intacta la validacion estricta que compara la cookie CSRF con `X-CSRF-Token`; no se habilito ningun bypass para refresh o cierre de sesion.
+* Correccion: Se valido la compilacion completa del backend con las rutas de autenticacion activas.
