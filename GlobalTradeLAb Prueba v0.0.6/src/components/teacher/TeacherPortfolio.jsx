@@ -110,6 +110,7 @@ const TeacherPortfolio = () => {
     balance,
     getCurrentPrice,
     openAssetInClass,
+    positions,
     refreshActiveRoomData,
     studentsInClass,
     symbols,
@@ -264,4 +265,3 @@ const TeacherPortfolio = () => {
 };
 
 export default TeacherPortfolio;
-    positions,
