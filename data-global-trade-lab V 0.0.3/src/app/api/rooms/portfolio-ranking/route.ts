@@ -67,11 +67,13 @@ export async function GET(request: Request) {
       .eq("state", "active"),
     supabaseAdmin
       .from("positions")
-      .select("id, user_id, group_id, symbol, type, amount, entry_price")
+      // Some deployed projects predate shared portfolios and do not have group_id yet.
+      // Selecting the existing row shape keeps individual rankings compatible with both schemas.
+      .select("*")
       .eq("room_id", roomId),
     supabaseAdmin
       .from("transactions")
-      .select("id, user_id, group_id, date")
+      .select("*")
       .eq("room_id", roomId),
   ]);
 
@@ -92,6 +94,10 @@ export async function GET(request: Request) {
     groupByUserId.set(membership.user_id, membership);
     groupMemberCount.set(membership.group_id, (groupMemberCount.get(membership.group_id) || 0) + 1);
   });
+  const supportsSharedPortfolioRows = [
+    ...(positionsResult.data || []),
+    ...(transactionsResult.data || []),
+  ].some((row) => Object.prototype.hasOwnProperty.call(row, "group_id"));
 
   const members = (membersResult.data || []).flatMap((member) => {
     const membership = groupByUserId.get(member.user_id) || null;
@@ -107,10 +113,14 @@ export async function GET(request: Request) {
       email: profile?.email || "",
       avatarUrl: null,
       availableBalance: Number(member.individual_available_balance ?? 0),
-      groupId: membership?.group_id || null,
+      groupId: supportsSharedPortfolioRows ? membership?.group_id || null : null,
       groupName: membership?.group_id ? groupNameById.get(membership.group_id) || null : null,
-      groupAvailableBalance: membership ? Number(membership.group_available_balance ?? 0) : null,
-      groupMemberCount: membership ? groupMemberCount.get(membership.group_id) || 1 : 1,
+      groupAvailableBalance: supportsSharedPortfolioRows && membership
+        ? Number(membership.group_available_balance ?? 0)
+        : null,
+      groupMemberCount: supportsSharedPortfolioRows && membership
+        ? groupMemberCount.get(membership.group_id) || 1
+        : 1,
     }];
   });
 
