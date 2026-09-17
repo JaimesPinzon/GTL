@@ -1,12 +1,13 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Bell, DollarSign, LogOut, User } from "lucide-react";
+import { ArrowLeft, Bell, ChevronDown, ChevronUp, DollarSign, LogOut, User } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { useTradingContext } from "@/contexts/TradingContext";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/market-data";
+import { useClassShortcuts } from "@/features/classes/hooks/useClassShortcuts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,7 @@ const Header = () => {
     activeRoom,
   } = useTradingContext();
   const location = useLocation();
+  const { isCollapsed: areClassShortcutsCollapsed, toggleShortcuts } = useClassShortcuts();
   const roomPathMatch = location.pathname.match(/^\/app\/classes\/([^/]+)(\/.*)?$/);
   const routeRoomId = roomPathMatch?.[1] || null;
   const isInsideClassWorkspace = Boolean(roomPathMatch);
@@ -50,7 +52,7 @@ const Header = () => {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.5 }}
-          className="flex items-center"
+          className="flex flex-col items-start"
         >
           <h1
             className="notranslate bg-gradient-to-r from-[#76a2ff] via-[#4f82ff] to-[#2f66e3] bg-clip-text text-2xl font-bold text-transparent"
@@ -58,6 +60,19 @@ const Header = () => {
           >
             {t("common.appName")}
           </h1>
+          {isInsideClassWorkspace ? (
+            <button
+              type="button"
+              onClick={toggleShortcuts}
+              className="mt-0.5 flex h-5 items-center gap-1 rounded-full bg-secondary/45 px-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition hover:bg-secondary/75 hover:text-foreground"
+              aria-expanded={!areClassShortcutsCollapsed}
+              aria-controls="class-quick-shortcuts"
+              title={areClassShortcutsCollapsed ? t("classes.workspace.showShortcuts") : t("classes.workspace.hideShortcuts")}
+            >
+              {areClassShortcutsCollapsed ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronUp className="h-2.5 w-2.5" />}
+              {t("classes.workspace.quickAccess")}
+            </button>
+          ) : null}
         </motion.div>
 
         <div className="flex items-center gap-3">

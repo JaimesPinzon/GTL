@@ -32,6 +32,7 @@ export const CLASS_CONTEXT_PATHS = {
 };
 
 export const CLASS_CONTEXT_NAV_ITEMS = [
+  { id: "dashboard", path: CLASS_CONTEXT_PATHS.dashboard },
   { id: "overview", path: CLASS_CONTEXT_PATHS.overview },
   { id: "markets", path: CLASS_CONTEXT_PATHS.markets },
   { id: "financialLab", path: CLASS_CONTEXT_PATHS.financialLab },

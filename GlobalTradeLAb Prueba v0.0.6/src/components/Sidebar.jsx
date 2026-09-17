@@ -1,24 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
+  BarChart3,
   BookOpen,
+  BookOpenCheck,
+  FlaskConical,
   GraduationCap,
   Info,
+  LayoutDashboard,
   Newspaper,
   LogOut,
   Menu,
   PanelLeftClose,
   Settings,
   UserCircle,
+  WalletCards,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 
 import { useTradingContext } from "@/contexts/TradingContext";
 import { Button } from "@/components/ui/button";
+import { useClassContext } from "@/features/classes/context/ClassContext";
 import {
   APP_HOME_PATH,
+  CLASS_CONTEXT_NAV_ITEMS,
   GLOBAL_APP_PATHS,
+  buildClassRoute,
 } from "@/lib/routes";
 
 const SIDEBAR_PINNED_KEY = "gtl.sidebar.pinned";
@@ -28,6 +36,7 @@ let sidebarHoverMemory = false;
 const Sidebar = () => {
   const { t } = useTranslation();
   const { user, logout } = useTradingContext();
+  const { activeClassId, hasActiveClass } = useClassContext() || {};
   const navigate = useNavigate();
   const location = useLocation();
   const closeTimerRef = useRef(null);
@@ -45,6 +54,10 @@ const Sidebar = () => {
   const [isHovered, setIsHovered] = useState(() => sidebarHoverMemory);
 
   const isOpen = isPinned || isHovered;
+  const isInsideClassWorkspace = useMemo(
+    () => /^\/app\/classes\/[^/]+(?:\/.*)?$/.test(location.pathname),
+    [location.pathname]
+  );
   const globalNavItems = useMemo(
     () => [
       {
@@ -74,6 +87,26 @@ const Sidebar = () => {
     ],
     [t]
   );
+
+  const classNavItems = useMemo(() => {
+    const icons = {
+      dashboard: LayoutDashboard,
+      overview: GraduationCap,
+      markets: BarChart3,
+      financialLab: FlaskConical,
+      portfolios: WalletCards,
+      academic: BookOpenCheck,
+    };
+
+    return CLASS_CONTEXT_NAV_ITEMS.map((item) => ({
+      ...item,
+      icon: icons[item.id],
+      label: item.id === "dashboard"
+        ? "Dashboard"
+        : t(`classes.workspace.navigation.${item.id}`),
+      path: activeClassId ? buildClassRoute(activeClassId, item.path) : null,
+    }));
+  }, [activeClassId, t]);
 
   useEffect(() => {
     sidebarPinnedMemory = isPinned;
@@ -204,6 +237,7 @@ const Sidebar = () => {
           <nav className="space-y-2 px-3">
             {globalNavItems.map((item) => {
               const Icon = item.icon;
+              const isClassesSection = item.id === "classes";
               const isGlobalActive =
                 location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
 
@@ -222,6 +256,37 @@ const Sidebar = () => {
                     <Icon className="h-5 w-5 shrink-0" />
                     {isOpen ? <span className="truncate text-lg font-medium">{item.label}</span> : null}
                   </NavLink>
+
+                  {isOpen && isClassesSection && hasActiveClass && isInsideClassWorkspace ? (
+                    <div className="space-y-1 border-l border-white/8 pl-3">
+                      {classNavItems.map((subItem) => {
+                        const SubIcon = subItem.icon;
+                        const isActive = Boolean(
+                          subItem.path && (
+                            location.pathname === subItem.path ||
+                            location.pathname.startsWith(`${subItem.path}/`)
+                          )
+                        );
+
+                        return (
+                          <NavLink
+                            key={subItem.id}
+                            to={subItem.path || APP_HOME_PATH}
+                            onMouseDown={keepSidebarStable}
+                            onClick={keepSidebarStable}
+                            className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
+                              isActive
+                                ? "bg-primary/10 text-primary"
+                                : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"
+                            }`}
+                          >
+                            <SubIcon className="h-4 w-4 shrink-0 opacity-80" />
+                            <span className="truncate">{subItem.label}</span>
+                          </NavLink>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
