@@ -146,7 +146,7 @@ const TeacherMarkets = () => {
     const newsId = searchParams.get("news");
     if (newsId) query.set("news", newsId);
     if (returnTo) query.set("returnTo", returnTo);
-    navigate(`${buildClassRoute(activeClassId, CLASS_CONTEXT_PATHS.dashboard)}?${query.toString()}`);
+    navigate(`${buildClassRoute(activeClassId, CLASS_CONTEXT_PATHS.trading)}?${query.toString()}`);
   }, [activeClassId, navigate, returnTo, searchParams, setSelectedSymbol]);
 
   const filteredSymbols = useMemo(() => {

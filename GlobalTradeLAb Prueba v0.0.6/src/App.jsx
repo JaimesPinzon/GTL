@@ -27,6 +27,10 @@ const PublicSectionPage = lazy(() => import("@/pages/PublicSectionPage"));
 const ClassesPanel = lazy(() => import("@/components/ClassesPanel"));
 const TeacherMarkets = lazy(() => import("@/components/teacher/TeacherMarkets"));
 const ClassOverviewPage = lazy(() => import("@/features/classes/pages/ClassOverviewPage"));
+const ClassPortfolioPage = lazy(() => import("@/features/classes/pages/ClassPortfolioPage"));
+const ClassAcademicPage = lazy(() => import("@/features/classes/pages/ClassAcademicPage"));
+const ClassAuditPage = lazy(() => import("@/features/classes/pages/ClassAuditPage"));
+const ClassLayout = lazy(() => import("@/features/classes/layouts/ClassLayout"));
 const EditClassPage = lazy(() => import("@/features/classes/pages/EditClassPage"));
 const FinancialLabPage = lazy(() => import("@/features/financial-lab/pages/FinancialLabPage"));
 
@@ -363,9 +367,9 @@ function AppContent() {
                 }
               />
               <Route
-                path="learn"
+                path="learn/*"
                 element={
-                  <PageScroller>
+                  <PageScroller className="h-full w-full p-0">
                     <LearnPage />
                   </PageScroller>
                 }
@@ -376,30 +380,34 @@ function AppContent() {
               <Route element={<ClassRouteGuard />}>
                 <Route
                   path="classes/:classId"
-                  element={<ClassOverviewPage />}
-                />
-                <Route path={`classes/:classId/${CLASS_CONTEXT_PATHS.dashboard}`} element={<Dashboard />} />
-                <Route
-                  path={`classes/:classId/${CLASS_CONTEXT_PATHS.markets}`}
-                  element={
-                    <PageScroller>
-                      <TeacherMarkets />
-                    </PageScroller>
-                  }
-                />
-                <Route
-                  path={`classes/:classId/${CLASS_CONTEXT_PATHS.financialLab}`}
-                  element={<FinancialLabPage />}
-                />
-              </Route>
-              <Route element={<ClassRouteGuard requiredRole="teacher" />}>
-                <Route
-                  path={`classes/:classId/${CLASS_CONTEXT_PATHS.editClass}`}
-                  element={<EditClassPage />}
-                />
+                  element={<ClassLayout />}
+                >
+                  <Route index element={<Navigate to={CLASS_CONTEXT_PATHS.overview} replace />} />
+                  <Route path={CLASS_CONTEXT_PATHS.menu} element={<Navigate to={`../${CLASS_CONTEXT_PATHS.overview}`} replace />} />
+                  <Route path={CLASS_CONTEXT_PATHS.overview} element={<ClassOverviewPage />} />
+                  <Route
+                    path={CLASS_CONTEXT_PATHS.markets}
+                    element={
+                      <PageScroller className="scrollbar-dashboard h-full w-full max-w-none overflow-y-auto p-4 md:p-6">
+                        <TeacherMarkets />
+                      </PageScroller>
+                    }
+                  />
+                  <Route path={CLASS_CONTEXT_PATHS.trading} element={<Dashboard />} />
+                  <Route path={CLASS_CONTEXT_PATHS.dashboard} element={<Dashboard />} />
+                  <Route path={CLASS_CONTEXT_PATHS.financialLab} element={<FinancialLabPage />} />
+                  <Route path={CLASS_CONTEXT_PATHS.legacyFinancialLab} element={<FinancialLabPage />} />
+                  <Route path={CLASS_CONTEXT_PATHS.portfolios} element={<ClassPortfolioPage />} />
+                  <Route path={CLASS_CONTEXT_PATHS.academic} element={<Navigate to="activities" replace />} />
+                  <Route path={`${CLASS_CONTEXT_PATHS.academic}/:academicSection`} element={<ClassAcademicPage />} />
+                  <Route element={<ClassRouteGuard requiredRole="teacher" />}>
+                    <Route path={CLASS_CONTEXT_PATHS.audit} element={<ClassAuditPage />} />
+                    <Route path={CLASS_CONTEXT_PATHS.editClass} element={<EditClassPage />} />
+                    <Route path={CLASS_CONTEXT_PATHS.legacyEditClass} element={<EditClassPage />} />
+                  </Route>
+                </Route>
               </Route>
               <Route path="settings" element={<SettingsRouteElement />} />
-              <Route path="learn" element={<LearnPage />} />
               <Route
                 path="support"
                 element={
@@ -416,6 +424,8 @@ function AppContent() {
           <Route path="/classes" element={<Navigate to={GLOBAL_APP_PATHS.classes} replace />} />
           <Route path="/settings" element={<Navigate to={GLOBAL_APP_PATHS.settings} replace />} />
           <Route path="/news" element={<Navigate to={GLOBAL_APP_PATHS.news} replace />} />
+          <Route path="/learn/*" element={<Navigate to={GLOBAL_APP_PATHS.learn} replace />} />
+          <Route path="/aprender/*" element={<Navigate to={GLOBAL_APP_PATHS.learn} replace />} />
           <Route path="/help" element={<Navigate to={GLOBAL_APP_PATHS.support} replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -298,7 +298,7 @@ const EditClassPage = () => {
             ) : null}
           </div>
 
-          <Button variant="ghost" className="rounded-2xl" onClick={() => navigate(APP_HOME_PATH)}>
+          <Button variant="ghost" className="rounded-2xl" onClick={() => navigate(buildClassHomeRoute(activeClass.id))}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             {t("classes.edit.back")}
           </Button>
@@ -535,7 +535,7 @@ const EditClassPage = () => {
             ) : null}
 
             <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => navigate(APP_HOME_PATH)}>
+              <Button variant="ghost" onClick={() => navigate(buildClassHomeRoute(activeClass.id))}>
                 {t("common.actions.cancel")}
               </Button>
               <Button onClick={handleSave} disabled={isSubmitting}>

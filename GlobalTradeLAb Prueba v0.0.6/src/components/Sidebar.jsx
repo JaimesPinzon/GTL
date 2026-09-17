@@ -1,17 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
-  BarChart2,
   BookOpen,
   GraduationCap,
-  FlaskConical,
   Info,
   Newspaper,
   LogOut,
   Menu,
   PanelLeftClose,
   Settings,
-  ShieldCheck,
   UserCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -19,12 +16,9 @@ import { useTranslation } from "react-i18next";
 
 import { useTradingContext } from "@/contexts/TradingContext";
 import { Button } from "@/components/ui/button";
-import { useClassContext } from "@/features/classes/context/ClassContext";
 import {
   APP_HOME_PATH,
-  CLASS_CONTEXT_NAV_ITEMS,
   GLOBAL_APP_PATHS,
-  buildClassRoute,
 } from "@/lib/routes";
 
 const SIDEBAR_PINNED_KEY = "gtl.sidebar.pinned";
@@ -34,7 +28,6 @@ let sidebarHoverMemory = false;
 const Sidebar = () => {
   const { t } = useTranslation();
   const { user, logout } = useTradingContext();
-  const { activeClassId, hasActiveClass } = useClassContext() || {};
   const navigate = useNavigate();
   const location = useLocation();
   const closeTimerRef = useRef(null);
@@ -52,11 +45,6 @@ const Sidebar = () => {
   const [isHovered, setIsHovered] = useState(() => sidebarHoverMemory);
 
   const isOpen = isPinned || isHovered;
-  const isInsideClassWorkspace = useMemo(
-    () => /^\/app\/classes\/[^/]+(\/.*)?$/.test(location.pathname),
-    [location.pathname]
-  );
-
   const globalNavItems = useMemo(
     () => [
       {
@@ -83,29 +71,8 @@ const Sidebar = () => {
         label: t("navigation.sidebar.settings"),
         path: GLOBAL_APP_PATHS.settings,
       },
-      {
-        id: "support",
-        icon: Info,
-        label: t("navigation.sidebar.help"),
-        path: GLOBAL_APP_PATHS.support,
-      },
     ],
     [t]
-  );
-
-  const classNavItems = useMemo(
-    () =>
-      CLASS_CONTEXT_NAV_ITEMS.map((item) => ({
-        ...item,
-        icon: item.id === "dashboard" ? BookOpen : item.id === "financialLab" ? FlaskConical : BarChart2,
-        label: item.id === "dashboard"
-          ? "Dashboard"
-          : item.id === "financialLab"
-            ? t("navigation.sidebar.financialLab")
-            : t("navigation.sidebar.markets"),
-        path: activeClassId ? buildClassRoute(activeClassId, item.path) : null,
-      })),
-    [activeClassId, t]
   );
 
   useEffect(() => {
@@ -237,7 +204,6 @@ const Sidebar = () => {
           <nav className="space-y-2 px-3">
             {globalNavItems.map((item) => {
               const Icon = item.icon;
-              const isClassesSection = item.id === "classes";
               const isGlobalActive =
                 location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
 
@@ -256,34 +222,6 @@ const Sidebar = () => {
                     <Icon className="h-5 w-5 shrink-0" />
                     {isOpen ? <span className="truncate text-lg font-medium">{item.label}</span> : null}
                   </NavLink>
-
-                  {isOpen && isClassesSection && hasActiveClass && isInsideClassWorkspace ? (
-                    <div className="space-y-1 pl-4">
-                      {classNavItems.map((subItem) => {
-                        const SubIcon = subItem.icon;
-                        const isActive = Boolean(
-                          subItem.path && location.pathname.startsWith(subItem.path)
-                        );
-
-                        return (
-                          <NavLink
-                            key={subItem.id}
-                            to={subItem.path || APP_HOME_PATH}
-                            onMouseDown={keepSidebarStable}
-                            onClick={keepSidebarStable}
-                            className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
-                              isActive
-                                ? "bg-primary/10 text-primary"
-                                : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"
-                            }`}
-                          >
-                            <SubIcon className="h-4 w-4 shrink-0 opacity-80" />
-                            <span className="truncate">{subItem.label}</span>
-                          </NavLink>
-                        );
-                      })}
-                    </div>
-                  ) : null}
                 </div>
               );
             })}
@@ -291,6 +229,19 @@ const Sidebar = () => {
         </div>
 
         <div className="mt-auto border-t border-white/8 p-3">
+          <NavLink
+            to={GLOBAL_APP_PATHS.support}
+            onMouseDown={keepSidebarStable}
+            onClick={keepSidebarStable}
+            className={({ isActive }) => `mb-1 flex items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-200 ${
+              isActive
+                ? "bg-primary/12 text-primary"
+                : "text-muted-foreground hover:bg-accent/75 hover:text-foreground"
+            }`}
+          >
+            <Info className="h-5 w-5 shrink-0" />
+            {isOpen ? <span>{t("navigation.sidebar.help")}</span> : null}
+          </NavLink>
           {user ? (
             <Button
               variant="ghost"

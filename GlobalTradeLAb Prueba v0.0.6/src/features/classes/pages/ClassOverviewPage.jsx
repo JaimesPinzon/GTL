@@ -544,70 +544,7 @@ const ClassOverviewPage = () => {
 
   return (
     <div className="scrollbar-dashboard h-full overflow-y-auto overflow-x-hidden">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 md:p-6">
-        <div className="sticky top-0 z-20 border-y border-white/8 bg-[#17191b]/96 shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl">
-          <div className="flex min-h-[64px] flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
-              <div className="flex min-w-0 items-center gap-3 px-1 py-2.5">
-                <span className="truncate text-lg font-semibold text-white">{activeClass?.name}</span>
-              </div>
-
-              <div className="hidden h-9 w-px bg-white/10 lg:block" />
-
-              <Button
-                variant="ghost"
-                className="h-10 rounded-xl px-3 text-slate-300 hover:bg-transparent hover:text-white"
-                onClick={() => navigate(GLOBAL_APP_PATHS.classes)}
-              >
-                {t("classes.rooms.title")}
-              </Button>
-
-              <div className="hidden h-9 w-px bg-white/10 lg:block" />
-
-              <div className="flex flex-wrap items-center gap-2">
-                {contextualLinks.map((link) => {
-                  const Icon = link.icon;
-
-                  return (
-                    <Button
-                      key={link.id}
-                      variant="ghost"
-                      className="h-10 rounded-xl px-3 text-slate-300 hover:bg-transparent hover:text-white"
-                      onClick={() => navigate(link.path)}
-                    >
-                      <Icon className="mr-2 h-4 w-4" />
-                      {link.label}
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10 rounded-2xl border border-white/10 bg-transparent text-slate-300 hover:bg-white/[0.05] hover:text-white"
-                onClick={() => navigate(GLOBAL_APP_PATHS.classes)}
-                aria-label={t("classes.actions.backToClasses")}
-                title={t("classes.actions.backToClasses")}
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              {user?.role === "teacher" ? (
-                <Button
-                  variant="ghost"
-                  className="h-10 rounded-2xl border border-white/10 bg-transparent px-4 text-slate-300 hover:bg-white/[0.05] hover:text-white"
-                  onClick={() => setIsGroupsModalOpen(true)}
-                >
-                  <Users className="mr-2 h-4 w-4" />
-                  {t("classes.actions.formGroups")}
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
+      <div className="mx-auto flex w-full max-w-[1520px] flex-col gap-6 p-4 md:p-6">
         <Card className="glass-card overflow-hidden">
           <CardHeader className="border-b border-white/8 bg-white/[0.02] pb-5">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -627,22 +564,6 @@ const ClassOverviewPage = () => {
                   </div>
                 ))}
               </div>
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              {roomTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`rounded-full px-4 py-2 text-sm transition ${
-                    tab.id === "summary"
-                      ? "bg-primary text-primary-foreground"
-                      : "border border-white/10 bg-white/[0.03] text-slate-300"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
             </div>
           </CardHeader>
 

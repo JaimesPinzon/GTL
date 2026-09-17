@@ -32,7 +32,7 @@ const Header = () => {
   const roomPathMatch = location.pathname.match(/^\/app\/classes\/([^/]+)(\/.*)?$/);
   const routeRoomId = roomPathMatch?.[1] || null;
   const isInsideClassWorkspace = Boolean(roomPathMatch);
-  const isFinancialLabWorkspace = /\/financial-lab(?:\/|$)/.test(location.pathname);
+  const isFinancialLabWorkspace = /\/(?:financial-lab|lab)(?:\/|$)/.test(location.pathname);
   const returnToNews = new URLSearchParams(location.search).get("returnTo");
   const resolvedRoomId = routeRoomId || activeRoomId || null;
   const shouldShowContextBalance = Boolean(user) && isInsideClassWorkspace && !isFinancialLabWorkspace && Boolean(resolvedRoomId);
