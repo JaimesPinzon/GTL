@@ -14,13 +14,13 @@ export function useChartData({
   preferredTimezone,
   marketSnapshot,
   reportChartHistory,
-  selectedMarketData,
   selectedSymbol,
 }) {
   const {
     chartHistory,
     hasReachedOldestHistory,
     historyLimit,
+    isInitialHistoryLoading,
     isLoadingOlderHistory,
     loadOlderHistory,
     progressiveHistoryEnabled,
@@ -34,13 +34,9 @@ export function useChartData({
     reportChartHistory?.(selectedSymbol, chartHistory);
   }, [chartHistory, reportChartHistory, selectedSymbol]);
 
-  // The chart owns the OHLC history. Class-level market data may be a quote-only
-  // snapshot, so use it only as a fallback when the chart has not loaded history.
-  const rawData = chartHistory.length > 1
-    ? chartHistory
-    : selectedMarketData?.length > 1
-      ? selectedMarketData
-      : chartHistory;
+  // The chart history is the only candle source. Quotes may update the last bar
+  // after this history exists, but must never render a provisional second series.
+  const rawData = chartHistory;
 
   const normalizedData = useMemo(() => {
     if (rawData.length === 0) {
@@ -55,7 +51,9 @@ export function useChartData({
   }, [currentTimeframe, normalizedData]);
 
   const renderedData = useMemo(
-    () => mergeMarketSnapshot(repairedData, marketSnapshot, currentTimeframe, preferredTimezone),
+    () => repairedData.length > 0
+      ? mergeMarketSnapshot(repairedData, marketSnapshot, currentTimeframe, preferredTimezone)
+      : repairedData,
     [repairedData, marketSnapshot, currentTimeframe, preferredTimezone]
   );
 
@@ -70,6 +68,7 @@ export function useChartData({
     formattedSeriesData,
     hasReachedOldestHistory,
     historyLimit,
+    isInitialHistoryLoading,
     isLoadingOlderHistory,
     loadOlderHistory,
     normalizedData,

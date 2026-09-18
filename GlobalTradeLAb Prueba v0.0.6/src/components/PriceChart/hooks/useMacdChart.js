@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef } from "react";
 import { createChart } from "lightweight-charts";
-import { focusLatestBars, getChartOptions } from "../utils";
-import { INITIAL_VISIBLE_BARS_BY_TIMEFRAME } from "@/lib/market-timeframes";
+import { getChartOptions } from "../utils";
+
+const alignPlotToTimeline = (plotData = [], timeline = []) => {
+  const valuesByTime = new Map(plotData.map((entry) => [entry.time, entry]));
+  return timeline.map((entry) => valuesByTime.get(entry.time) ?? { time: entry.time });
+};
 
 export function useMacdChart({
   chartAppearance,
   chartLocale,
   chartRef,
   chartTimezone,
-  currentTimeframe,
   formattedSeriesData,
   isFullScreen,
   macdContainerRef,
@@ -65,8 +68,8 @@ export function useMacdChart({
     macdChartRef.current = createChart(macdContainerRef.current, {
       ...getChartOptions(currentTheme, isFullScreen, macdContainerRef, false, chartAppearance, chartLocale, chartTimezone),
       height: 100,
-      rightPriceScale: { visible: true },
-      timeScale: { visible: false },
+      rightPriceScale: { visible: true, minimumWidth: 80 },
+      timeScale: { visible: true },
     });
 
     if (chartRef.current && macdChartRef.current) {
@@ -184,7 +187,7 @@ export function useMacdChart({
 
       const plotSeries = paneSeriesRefs.current.get(plot.id);
       plotSeries?.applyOptions(plot.options ?? {});
-      plotSeries?.setData(plot.data ?? []);
+      plotSeries?.setData(alignPlotToTimeline(plot.data, formattedSeriesData));
     });
 
     paneSeriesRefs.current.forEach((series, plotId) => {
@@ -199,12 +202,11 @@ export function useMacdChart({
       paneSeriesRefs.current.delete(plotId);
     });
 
-    focusLatestBars(
-      macdChartRef.current,
-      formattedSeriesData.length,
-      INITIAL_VISIBLE_BARS_BY_TIMEFRAME[currentTimeframe] ?? 120
-    );
-  }, [createSeriesForPlot, currentTimeframe, formattedSeriesData.length, paneStudy]);
+    const mainVisibleRange = chartRef.current?.timeScale?.().getVisibleLogicalRange?.();
+    if (mainVisibleRange) {
+      macdChartRef.current.timeScale().setVisibleLogicalRange(mainVisibleRange);
+    }
+  }, [chartRef, createSeriesForPlot, formattedSeriesData, paneStudy]);
 
   return {
     macdChartRef,

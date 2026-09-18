@@ -1,4 +1,4 @@
-import { calculateEMA } from "./ema";
+import { calculateEMA } from "./ema.js";
 
 export function calculateMACD(data, shortPeriod = 12, longPeriod = 26, signalPeriod = 9) {
   if (!Array.isArray(data) || data.length < longPeriod) {
@@ -20,44 +20,44 @@ export function calculateMACD(data, shortPeriod = 12, longPeriod = 26, signalPer
   return { macdLine, signalLine, histogram };
 }
 
-export function buildMacdSeriesData(processedData) {
-  if (!Array.isArray(processedData) || processedData.length < 26) {
+export function buildMacdSeriesData(processedData, shortPeriod = 12, longPeriod = 26, signalPeriod = 9, style = {}) {
+  if (!Array.isArray(processedData) || processedData.length < longPeriod) {
     return null;
   }
 
-  const macdResult = calculateMACD(processedData.map((item) => item.close));
+  const macdResult = calculateMACD(processedData.map((item) => item.close), shortPeriod, longPeriod, signalPeriod);
 
   return {
     macdLine: macdResult.macdLine.map((value, index) => ({
-      time: processedData[index + 25].time,
+      time: processedData[index + longPeriod - 1].time,
       value,
     })),
     signalLine: macdResult.signalLine.map((value, index) => ({
-      time: processedData[index + 33].time,
+      time: processedData[index + longPeriod + signalPeriod - 2].time,
       value,
     })),
     histogramData: macdResult.histogram.map((value, index) => ({
-      time: processedData[index + 33].time,
+      time: processedData[index + longPeriod + signalPeriod - 2].time,
       value,
-      color: value >= 0 ? "rgba(0, 150, 136, 0.5)" : "rgba(255, 82, 82, 0.5)",
+      color: value >= 0 ? (style.positiveColor ?? "rgba(0, 150, 136, 0.5)") : (style.negativeColor ?? "rgba(255, 82, 82, 0.5)"),
     })),
   };
 }
 
-export function getMacdLineSeriesOptions() {
+export function getMacdLineSeriesOptions(style = {}) {
   return {
-    color: "blue",
-    lineWidth: 1,
+    color: style.macdColor ?? "#2962ff",
+    lineWidth: style.lineWidth ?? 1,
     priceLineVisible: false,
     lastValueVisible: false,
     crosshairMarkerVisible: false,
   };
 }
 
-export function getMacdSignalSeriesOptions() {
+export function getMacdSignalSeriesOptions(style = {}) {
   return {
-    color: "orange",
-    lineWidth: 1,
+    color: style.signalColor ?? "#f59e0b",
+    lineWidth: style.lineWidth ?? 1,
     priceLineVisible: false,
     lastValueVisible: false,
     crosshairMarkerVisible: false,

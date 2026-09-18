@@ -134,6 +134,7 @@ export const getChartOptions = (
     horzLines: { color: appearance.gridColor ?? (theme === 'dark' ? defaultAppearance.gridColorDark : defaultAppearance.gridColorLight) },
   },
   timeScale: {
+    visible: !isMainChartWithPane,
     timeVisible: true,
     secondsVisible: false,
     rightOffset: 12,
@@ -155,6 +156,7 @@ export const getChartOptions = (
   },
   rightPriceScale: {
     borderColor: theme === 'dark' ? defaultAppearance.borderColorDark : defaultAppearance.borderColorLight,
+    minimumWidth: 80,
   },
   crosshair: {
     mode: 0,

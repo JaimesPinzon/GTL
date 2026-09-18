@@ -31,10 +31,10 @@ export function buildEmaSeriesData({ emaPeriod, processedData }) {
   }));
 }
 
-export function getEmaSeriesOptions(lineColor) {
+export function getEmaSeriesOptions(lineColor, lineWidth = 2) {
   return {
     color: lineColor ?? "rgba(255, 165, 0, 0.8)",
-    lineWidth: 1,
+    lineWidth,
     priceLineVisible: false,
     lastValueVisible: false,
     crosshairMarkerVisible: false,

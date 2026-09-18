@@ -23,15 +23,18 @@ const studyDefinitions = {
     priceScaleId: "right",
     sourceSeriesId: MAIN_PRICE_SERIES_ID,
     plots: [{ id: "ema-line", type: "line" }],
-    createInputs: ({ emaPeriod }) => ({
-      length: emaPeriod,
+    createInputs: ({ emaPeriod, instance }) => ({
+      length: instance?.parameters?.period ?? emaPeriod,
       source: "close",
     }),
-    calculate: ({ emaPeriod, processedData }) => ({
-      "ema-line": buildEmaSeriesData({ emaPeriod, processedData }),
+    calculate: ({ inputs, processedData }) => ({
+      "ema-line": buildEmaSeriesData({ emaPeriod: inputs.length, processedData }),
     }),
-    createOutputOptions: ({ chartAppearance }) => ({
-      "ema-line": getEmaSeriesOptions(chartAppearance?.lineColor),
+    createOutputOptions: ({ chartAppearance, instance }) => ({
+      "ema-line": getEmaSeriesOptions(
+        instance?.style?.color ?? chartAppearance?.lineColor,
+        instance?.style?.lineWidth
+      ),
     }),
   },
   macd: {
@@ -48,14 +51,20 @@ const studyDefinitions = {
       { id: "macd-signal", type: "line" },
       { id: "macd-histogram", type: "histogram" },
     ],
-    createInputs: () => ({
-      shortPeriod: 12,
-      longPeriod: 26,
-      signalPeriod: 9,
+    createInputs: ({ instance }) => ({
+      shortPeriod: instance?.parameters?.shortPeriod ?? 12,
+      longPeriod: instance?.parameters?.longPeriod ?? 26,
+      signalPeriod: instance?.parameters?.signalPeriod ?? 9,
       source: "close",
     }),
-    calculate: ({ processedData }) => {
-      const result = buildMacdSeriesData(processedData);
+    calculate: ({ inputs, instance, processedData }) => {
+      const result = buildMacdSeriesData(
+        processedData,
+        inputs.shortPeriod,
+        inputs.longPeriod,
+        inputs.signalPeriod,
+        instance?.style
+      );
 
       if (!result) {
         return {
@@ -71,9 +80,9 @@ const studyDefinitions = {
         "macd-histogram": result.histogramData,
       };
     },
-    createOutputOptions: () => ({
-      "macd-line": getMacdLineSeriesOptions(),
-      "macd-signal": getMacdSignalSeriesOptions(),
+    createOutputOptions: ({ instance }) => ({
+      "macd-line": getMacdLineSeriesOptions(instance?.style),
+      "macd-signal": getMacdSignalSeriesOptions(instance?.style),
       "macd-histogram": getMacdHistogramSeriesOptions(),
     }),
   },
@@ -90,14 +99,36 @@ export function buildStudyInstances({
   chartAppearance,
   definitions,
   emaPeriod,
+  indicatorInstances,
   processedData,
   resolvedIndicatorData,
 }) {
   return definitions.map((definition) => {
-    const inputs = definition.createInputs({ emaPeriod });
-    const calculatedOutputs = definition.calculate({ emaPeriod, processedData });
+    const instance = indicatorInstances?.find((item) => item.id === definition.id);
+    const inputs = definition.createInputs({ emaPeriod, instance });
+    const calculatedOutputs = definition.calculate({ inputs, instance, processedData });
     const resolvedOutputs = resolvedIndicatorData?.[definition.id] ?? {};
-    const outputOptions = definition.createOutputOptions({ chartAppearance });
+    const outputOptions = definition.createOutputOptions({ chartAppearance, instance });
+    const latestTime = processedData[processedData.length - 1]?.time;
+
+    const resolveOutput = (plotId) => {
+      const backendOutput = resolvedOutputs[plotId];
+      const backendLatestTime = backendOutput?.[backendOutput.length - 1]?.time;
+      const output = backendOutput?.length && backendLatestTime === latestTime
+        ? backendOutput
+        : calculatedOutputs[plotId] ?? [];
+
+      if (definition.id === "macd" && plotId === "macd-histogram") {
+        return output.map((entry) => ({
+          ...entry,
+          color: entry.value >= 0
+            ? (instance?.style?.positiveColor ?? entry.color)
+            : (instance?.style?.negativeColor ?? entry.color),
+        }));
+      }
+
+      return output;
+    };
 
     return {
       id: definition.id,
@@ -113,10 +144,10 @@ export function buildStudyInstances({
       plots: definition.plots.map((plot) => ({
         id: plot.id,
         type: plot.type,
-        data: resolvedOutputs[plot.id] ?? calculatedOutputs[plot.id] ?? [],
+        data: resolveOutput(plot.id),
         options: outputOptions[plot.id] ?? {},
       })),
-      calculate: (bars) => definition.calculate({ emaPeriod, processedData: bars }),
+      calculate: (bars) => definition.calculate({ inputs, instance, processedData: bars }),
     };
   });
 }

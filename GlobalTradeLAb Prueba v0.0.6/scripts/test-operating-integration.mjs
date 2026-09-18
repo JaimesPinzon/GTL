@@ -95,9 +95,18 @@ test('open, close, reopen and submit use the shared balance and actual last char
     const state = market.useClassMarketContext();
     const chart = useChartData({
       cacheScopeKey: user.id, chartType: 'candlestick', currentTimeframe: '1m',
-      selectedSymbol: state.selectedSymbol, selectedMarketData: state.marketData[state.selectedSymbol],
+      selectedSymbol: state.selectedSymbol,
     });
-    return React.createElement('chart-price', { price: chart.visibleOhlcData.at(-1)?.close });
+    const latestCandle = chart.visibleOhlcData.at(-1);
+    React.useEffect(() => {
+      if (latestCandle) {
+        state.reportChartSnapshot(state.selectedSymbol, {
+          time: latestCandle.time,
+          price: latestCandle.close,
+        });
+      }
+    }, [latestCandle?.close, latestCandle?.time, state.reportChartSnapshot, state.selectedSymbol]);
+    return React.createElement('chart-price', { price: latestCandle?.close });
   }
   function Harness() {
     const live = useActiveRoomAccount({ roomId: 'room-1', userIds: ['teacher-1'], knownAccount: null });

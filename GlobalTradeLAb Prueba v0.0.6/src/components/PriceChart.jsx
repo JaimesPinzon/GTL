@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BellPlus, Check, Minus, ShoppingCart, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
+import { BellPlus, Check, Eye, EyeOff, Minus, Settings, ShoppingCart, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useTradingWorkspace } from "@/features/classes/hooks/useTradingWorkspace";
 import {
   Dialog,
@@ -23,6 +23,7 @@ import { getDrawingLabelKey } from "./PriceChart/drawings/drawingRegistry";
 import { useSearchParams } from "react-router-dom";
 import { fetchNews } from "@/lib/news-api";
 import { buildNewsChartMarkers } from "@/lib/news-chart-markers";
+import { resolveMarketSnapshot } from "@/lib/market-price";
 
 const getCreationHintKey = (tool, pointCount) => {
   if (tool === "polyline") return "priceChart.drawings.creation.polyline";
@@ -54,6 +55,10 @@ const PriceChart = ({
   activeTool,
   setActiveTool,
   showToolSidebar = true,
+  indicatorInstances = [],
+  onOpenIndicatorSettings,
+  onRemoveIndicator,
+  onToggleIndicatorVisibility,
   showEMA,
   emaPeriod,
   showMACD,
@@ -76,12 +81,15 @@ const PriceChart = ({
     activeClass,
     activeClassId,
     initialSymbols,
-    marketData = {},
     preferencesState,
+    quoteData = {},
     reportChartSnapshot,
     user,
   } = useTradingWorkspace();
-  const selectedMarketData = marketData[selectedSymbol] ?? [];
+  const marketSnapshot = useMemo(
+    () => resolveMarketSnapshot({ quote: quoteData[selectedSymbol] }),
+    [quoteData, selectedSymbol]
+  );
   const currentSymbolInfo = initialSymbols.find((symbol) => symbol.id === selectedSymbol);
   const currency = currentSymbolInfo ? currentSymbolInfo.currency : "USD";
   const preferredTimezone = preferencesState?.timezone || user?.timezone || null;
@@ -96,6 +104,7 @@ const PriceChart = ({
     formattedSeriesData,
     hasReachedOldestHistory,
     historyLimit,
+    isInitialHistoryLoading,
     isLoadingOlderHistory,
     loadOlderHistory,
     progressiveHistoryEnabled,
@@ -107,7 +116,7 @@ const PriceChart = ({
     chartType,
     currentTimeframe,
     preferredTimezone,
-    selectedMarketData,
+    marketSnapshot,
     selectedSymbol,
   });
 
@@ -115,6 +124,7 @@ const PriceChart = ({
     chartAppearance,
     emaPeriod,
     historyLimit,
+    indicatorInstances,
     processedData,
     preferredTimezone,
     selectedSymbol,
@@ -186,6 +196,7 @@ const PriceChart = ({
     currency,
     currentTimeframe,
     formattedSeriesData,
+    isHistoryReady: !isInitialHistoryLoading && formattedSeriesData.length > 0,
     isFullScreen,
     newsMarkers,
     onChartClick: drawings.handleChartClick,
@@ -198,6 +209,7 @@ const PriceChart = ({
     showMACD,
     overlayStudies,
     onLoadOlderHistory: loadOlderHistory,
+    oldestRenderedTime: processedData[0]?.time ?? null,
     progressiveHistoryEnabled,
     syncMacdVisibility: handleSyncMacdVisibility,
   });
@@ -256,7 +268,6 @@ const PriceChart = ({
     chartLocale,
     chartRef,
     chartTimezone,
-    currentTimeframe,
     formattedSeriesData,
     isFullScreen,
     macdContainerRef: macdChartContainerRef,
@@ -344,6 +355,25 @@ const PriceChart = ({
           style={{ height: "100%" }}
         />
 
+        {indicatorInstances.length ? (
+          <div className="pointer-events-auto absolute left-14 top-3 z-20 flex max-w-[calc(100%-8rem)] flex-wrap gap-1.5">
+            {indicatorInstances.map((instance) => (
+              <div key={instance.id} className="app-chrome-panel flex h-8 items-center gap-1 rounded-lg border border-border/80 px-2 text-[11px] font-semibold text-foreground shadow-md">
+                <span className="max-w-32 truncate">
+                  {instance.id === "ema"
+                    ? `EMA ${instance.parameters.period}`
+                    : `MACD ${instance.parameters.shortPeriod} ${instance.parameters.longPeriod} ${instance.parameters.signalPeriod}`}
+                </span>
+                <button type="button" onClick={() => onToggleIndicatorVisibility?.(instance.id)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title={instance.visible ? t("priceChart.indicators.hide") : t("priceChart.indicators.show")}>
+                  {instance.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                </button>
+                <button type="button" onClick={() => onOpenIndicatorSettings?.(instance.id)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title={t("priceChart.indicators.settings")}><Settings className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={() => onRemoveIndicator?.(instance.id)} className="rounded p-1 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400" title={t("priceChart.indicators.remove")}><X className="h-3.5 w-3.5" /></button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {newsMarkers.length ? <div className="pointer-events-none absolute right-3 top-3 z-20 rounded-full border border-sky-400/25 bg-background/90 px-3 py-1 text-[11px] font-medium text-sky-300 shadow-md">{t("priceChart.newsMarkers.count", { count: newsMarkers.length })}</div> : null}
 
         <DrawingLayer
@@ -404,20 +434,20 @@ const PriceChart = ({
           </div>
         ) : null}
 
-        {progressiveHistoryEnabled && isLoadingOlderHistory ? (
+        {isInitialHistoryLoading ? (
+          <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border/80 bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-md">
+            {t("priceChart.historyStatus.loadingInitial")}
+          </div>
+        ) : null}
+
+        {progressiveHistoryEnabled && !isInitialHistoryLoading && isLoadingOlderHistory ? (
           <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border/80 bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-md">
             {t("priceChart.historyStatus.loadingOlder")}
           </div>
         ) : null}
 
-        {progressiveHistoryEnabled && !isLoadingOlderHistory && hasReachedOldestHistory ? (
+        {progressiveHistoryEnabled && !isInitialHistoryLoading && !isLoadingOlderHistory && hasReachedOldestHistory ? (
           <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border/80 bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-md">
-            {t("priceChart.historyStatus.noOlderData")}
-          </div>
-        ) : null}
-
-        {progressiveHistoryEnabled && !isLoadingOlderHistory && hasReachedOldestHistory ? (
-          <div className="pointer-events-none absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-r-md border border-l-0 border-border/80 bg-background/90 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-md">
             {t("priceChart.historyStatus.noOlderData")}
           </div>
         ) : null}

@@ -7,6 +7,7 @@ export function useIndicatorsData({
   chartAppearance,
   emaPeriod,
   historyLimit,
+  indicatorInstances,
   processedData,
   preferredTimezone,
   selectedSymbol,
@@ -15,6 +16,10 @@ export function useIndicatorsData({
   timeframe,
 }) {
   const [backendIndicators, setBackendIndicators] = useState(null);
+  const macdInstance = indicatorInstances?.find((instance) => instance.id === "macd");
+  const macdShortPeriod = macdInstance?.parameters?.shortPeriod ?? 12;
+  const macdLongPeriod = macdInstance?.parameters?.longPeriod ?? 26;
+  const macdSignalPeriod = macdInstance?.parameters?.signalPeriod ?? 9;
 
   useEffect(() => {
     let isMounted = true;
@@ -27,12 +32,16 @@ export function useIndicatorsData({
     }
 
     const loadIndicators = async () => {
+      setBackendIndicators(null);
       try {
         const response = await getMarketIndicatorsFromBackend({
           symbol: selectedSymbol,
           timeframe,
           limit: historyLimit,
           emaPeriod,
+          macdShortPeriod,
+          macdLongPeriod,
+          macdSignalPeriod,
         });
 
         if (!isMounted) {
@@ -71,7 +80,7 @@ export function useIndicatorsData({
     return () => {
       isMounted = false;
     };
-  }, [emaPeriod, historyLimit, preferredTimezone, selectedSymbol, showEMA, showMACD, timeframe]);
+  }, [emaPeriod, historyLimit, macdLongPeriod, macdShortPeriod, macdSignalPeriod, preferredTimezone, selectedSymbol, showEMA, showMACD, timeframe]);
 
   const resolvedIndicatorData = useMemo(() => ({
     ema: {
@@ -100,10 +109,11 @@ export function useIndicatorsData({
         chartAppearance,
         definitions: activeStudyDefinitions,
         emaPeriod,
+        indicatorInstances,
         processedData,
         resolvedIndicatorData,
       }),
-    [activeStudyDefinitions, chartAppearance, emaPeriod, processedData, resolvedIndicatorData]
+    [activeStudyDefinitions, chartAppearance, emaPeriod, indicatorInstances, processedData, resolvedIndicatorData]
   );
 
   const overlayStudies = useMemo(

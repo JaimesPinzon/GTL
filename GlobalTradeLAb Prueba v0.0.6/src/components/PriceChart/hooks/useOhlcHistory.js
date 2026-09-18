@@ -244,6 +244,7 @@ function markOldestHistoryAsReached({
 export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
   const [chartHistory, setChartHistory] = useState([]);
   const chartHistoryRef = useRef([]);
+  const [isInitialHistoryLoading, setIsInitialHistoryLoading] = useState(true);
   const [isLoadingOlderHistory, setIsLoadingOlderHistory] = useState(false);
   const [hasReachedOldestHistory, setHasReachedOldestHistory] = useState(false);
   const historyLimit = getHistoryLimit(timeframe);
@@ -263,6 +264,7 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
   const oldestLoadedTimeRef = useRef(null);
   const latestLoadRequestIdRef = useRef(0);
   const olderLoadRequestIdRef = useRef(0);
+  const initialHistoryReadyRef = useRef(false);
 
   useEffect(() => {
     ensureOhlcCacheScope(cacheScopeKey);
@@ -272,11 +274,13 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
     loadedWindowRef.current = null;
     chartHistoryRef.current = [];
     loadingOlderRef.current = false;
+    initialHistoryReadyRef.current = false;
     oldestHistoryReachedRef.current = false;
     oldestLoadedTimeRef.current = null;
     latestLoadRequestIdRef.current += 1;
     olderLoadRequestIdRef.current += 1;
     setChartHistory([]);
+    setIsInitialHistoryLoading(true);
     setIsLoadingOlderHistory(false);
     setHasReachedOldestHistory(false);
   }, [selectedSymbol, timeframe]);
@@ -298,6 +302,8 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
     const requestId = ++latestLoadRequestIdRef.current;
 
     const loadLatestHistory = async (force = false) => {
+      const isInitialLoad = !force && !initialHistoryReadyRef.current;
+
       try {
         if (progressive) {
           let nextHistory = await loadOhlcHistory({
@@ -362,8 +368,15 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
       } catch (error) {
         console.error("loadChartHistory error", error);
 
-        if (isMounted && requestId === latestLoadRequestIdRef.current) {
+        if (isInitialLoad && isMounted && requestId === latestLoadRequestIdRef.current) {
           setChartHistory([]);
+        }
+      } finally {
+        if (isInitialLoad && isMounted && requestId === latestLoadRequestIdRef.current) {
+          initialHistoryReadyRef.current = true;
+          oldestHistoryReachedRef.current = false;
+          setHasReachedOldestHistory(false);
+          setIsInitialHistoryLoading(false);
         }
       }
     };
@@ -382,17 +395,19 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
   }, [initialLoadLimit, progressive, refreshInterval, selectedSymbol, timeframe]);
 
   const loadOlderHistory = useCallback(async () => {
-    if (!progressive || loadingOlderRef.current || oldestHistoryReachedRef.current) {
+    if (
+      !progressive ||
+      !initialHistoryReadyRef.current ||
+      chartHistoryRef.current.length === 0 ||
+      loadingOlderRef.current ||
+      oldestHistoryReachedRef.current
+    ) {
       return false;
     }
 
     const currentRequestId = ++olderLoadRequestIdRef.current;
     const olderWindow = resolveOlderWindowFromCursor({ loadedWindowRef, oldestLoadedTimeRef });
     if (!olderWindow) {
-      markOldestHistoryAsReached({
-        oldestHistoryReachedRef,
-        setHasReachedOldestHistory,
-      });
       return false;
     }
     const currentOldestTime = oldestLoadedTimeRef.current;
@@ -465,6 +480,7 @@ export function useOhlcHistory({ cacheScopeKey, selectedSymbol, timeframe }) {
     chartHistory,
     hasReachedOldestHistory,
     historyLimit,
+    isInitialHistoryLoading,
     isLoadingOlderHistory,
     loadOlderHistory,
     progressiveHistoryEnabled: progressive,

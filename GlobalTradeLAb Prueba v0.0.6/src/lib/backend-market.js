@@ -364,6 +364,9 @@ export const getMarketIndicatorsFromBackend = async ({
   timeframe = DEFAULT_TIMEFRAME,
   limit = 300,
   emaPeriod = 20,
+  macdShortPeriod = 12,
+  macdLongPeriod = 26,
+  macdSignalPeriod = 9,
 }) => {
   const backendSymbol = getBackendSymbol(symbol);
 
@@ -375,7 +378,7 @@ export const getMarketIndicatorsFromBackend = async ({
   const response = await fetch(
     `${getMarketBackendUrl("/api/market/indicators")}?symbol=${encodeURIComponent(
       backendSymbol
-    )}&timeframe=${encodeURIComponent(backendTimeframe)}&limit=${limit}&emaPeriod=${emaPeriod}`,
+    )}&timeframe=${encodeURIComponent(backendTimeframe)}&limit=${limit}&emaPeriod=${emaPeriod}&macdShortPeriod=${macdShortPeriod}&macdLongPeriod=${macdLongPeriod}&macdSignalPeriod=${macdSignalPeriod}`,
     { cache: "no-store" }
   );
 

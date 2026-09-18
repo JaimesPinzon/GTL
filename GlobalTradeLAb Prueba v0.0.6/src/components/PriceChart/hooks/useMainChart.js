@@ -13,6 +13,7 @@ export function useMainChart({
   currency,
   currentTimeframe,
   formattedSeriesData,
+  isHistoryReady,
   isFullScreen,
   newsMarkers,
   onChartClick,
@@ -238,7 +239,12 @@ export function useMainChart({
   }, [chartAppearance, chartLocale, chartTimezone, containerRef, isFullScreen, showMACD]);
 
   useEffect(() => {
-    if (!chartRef.current || !progressiveHistoryEnabled || typeof loadOlderHistoryHandlerRef.current !== "function") {
+    if (
+      !chartRef.current ||
+      !isHistoryReady ||
+      !progressiveHistoryEnabled ||
+      typeof loadOlderHistoryHandlerRef.current !== "function"
+    ) {
       return;
     }
 
@@ -316,7 +322,7 @@ export function useMainChart({
       chartHost?.removeEventListener("pointerdown", armUserInteraction);
       chartHost?.removeEventListener("touchstart", armUserInteraction);
     };
-  }, [containerRef, formattedSeriesData.length, progressiveHistoryEnabled, seriesRef]);
+  }, [containerRef, formattedSeriesData.length, isHistoryReady, progressiveHistoryEnabled, seriesRef]);
 
   useEffect(() => {
     if (!chartRef.current || !containerRef.current) {

@@ -26,6 +26,9 @@ export async function GET(request: Request) {
     const timeframe = searchParams.get("timeframe")?.trim() ?? "1M";
     const limit = Number.parseInt(searchParams.get("limit") ?? "300", 10);
     const emaPeriod = Number.parseInt(searchParams.get("emaPeriod") ?? "20", 10);
+    const macdShortPeriod = Number.parseInt(searchParams.get("macdShortPeriod") ?? "12", 10);
+    const macdLongPeriod = Number.parseInt(searchParams.get("macdLongPeriod") ?? "26", 10);
+    const macdSignalPeriod = Number.parseInt(searchParams.get("macdSignalPeriod") ?? "9", 10);
     const config = getConfigForTimeframe(timeframe);
 
     if (!symbol) {
@@ -58,7 +61,13 @@ export async function GET(request: Request) {
         const candleTimes = candles.map((candle) => candle.time);
         const closes = candles.map((candle) => candle.close);
         const ema = buildEmaSeries(candleTimes, closes, emaPeriod).filter((entry) => entry.time);
-        const macdSeries = buildMacdSeries(candleTimes, closes);
+        const macdSeries = buildMacdSeries(
+            candleTimes,
+            closes,
+            macdShortPeriod,
+            macdLongPeriod,
+            macdSignalPeriod
+        );
 
         return NextResponse.json(
             {

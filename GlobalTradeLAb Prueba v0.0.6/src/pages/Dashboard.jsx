@@ -13,6 +13,10 @@ import ChartTypeOverlay from "@/components/ChartTypeOverlay";
 import WorkspaceUtilityRail from "@/components/WorkspaceUtilityRail";
 import DashboardWidgetShelf from "@/components/DashboardWidgetShelf";
 import { useTradingWorkspace } from "@/features/classes/hooks/useTradingWorkspace";
+import {
+  MAX_ACTIVE_INDICATORS,
+  useIndicatorManager,
+} from "@/components/PriceChart/hooks/useIndicatorManager";
 
 const createDefaultChartAppearance = () => ({
   backgroundColor: "transparent",
@@ -26,7 +30,7 @@ const createDefaultChartAppearance = () => ({
 });
 
 const Dashboard = () => {
-  const { selectedSymbol } = useTradingWorkspace();
+  const { selectedSymbol, user } = useTradingWorkspace();
   const [isTradePanelOpen, setIsTradePanelOpen] = useState(false);
   const [isMarketSearchOpen, setIsMarketSearchOpen] = useState(false);
   const [isIndicatorsOpen, setIsIndicatorsOpen] = useState(false);
@@ -36,9 +40,7 @@ const Dashboard = () => {
   const [chartType, setChartType] = useState("candlestick");
   const [currentTimeframe, setCurrentTimeframe] = useState(DEFAULT_TIMEFRAME);
   const [isChartFullScreen, setIsChartFullScreen] = useState(false);
-  const [showEMA, setShowEMA] = useState(false);
-  const [emaPeriod, setEmaPeriod] = useState(20);
-  const [showMACD, setShowMACD] = useState(false);
+  const [indicatorEditorId, setIndicatorEditorId] = useState(null);
   const [chartSideTool, setChartSideTool] = useState(null);
   const [isChartToolSidebarPinned, setIsChartToolSidebarPinned] = useState(true);
   const [isWorkspaceUtilityRailPinned, setIsWorkspaceUtilityRailPinned] = useState(true);
@@ -46,6 +48,12 @@ const Dashboard = () => {
   const [chartActions, setChartActions] = useState(null);
   const [drawingWorkspace, setDrawingWorkspace] = useState(null);
   const [chartAppearance, setChartAppearance] = useState(createDefaultChartAppearance);
+  const indicatorManager = useIndicatorManager(user?.id || user?.user_id || user?.email || "anonymous");
+  const emaInstance = indicatorManager.instances.find((instance) => instance.id === "ema");
+  const macdInstance = indicatorManager.instances.find((instance) => instance.id === "macd");
+  const showEMA = Boolean(emaInstance?.active && emaInstance?.visible);
+  const showMACD = Boolean(macdInstance?.active && macdInstance?.visible);
+  const emaPeriod = emaInstance?.parameters?.period ?? 20;
 
   const workspaceColumns = useMemo(
     () => (isWorkspaceUtilityRailPinned ? "minmax(0,1fr) 48px" : "minmax(0,1fr) 0px"),
@@ -158,12 +166,16 @@ const Dashboard = () => {
                   activeTool={chartSideTool}
                   setActiveTool={setChartSideTool}
                   showToolSidebar={isChartToolSidebarPinned}
+                  indicatorInstances={indicatorManager.activeInstances}
+                  onOpenIndicatorSettings={(id) => {
+                    setIndicatorEditorId(id);
+                    setIsIndicatorsOpen(true);
+                  }}
+                  onRemoveIndicator={indicatorManager.removeIndicator}
+                  onToggleIndicatorVisibility={indicatorManager.toggleVisibility}
                   showEMA={showEMA}
-                  setShowEMA={setShowEMA}
                   emaPeriod={emaPeriod}
-                  setEmaPeriod={setEmaPeriod}
                   showMACD={showMACD}
-                  setShowMACD={setShowMACD}
                 />
               </div>
 
@@ -188,14 +200,23 @@ const Dashboard = () => {
 
       <MarketSearchOverlay open={isMarketSearchOpen} onClose={() => setIsMarketSearchOpen(false)} />
       <IndicatorsOverlay
+        activeInstances={indicatorManager.activeInstances}
+        favorites={indicatorManager.favorites}
+        initialEditingId={indicatorEditorId}
+        instances={indicatorManager.instances}
+        maxActiveIndicators={MAX_ACTIVE_INDICATORS}
+        onAdd={indicatorManager.addIndicator}
         open={isIndicatorsOpen}
-        onClose={() => setIsIndicatorsOpen(false)}
-        showEMA={showEMA}
-        setShowEMA={setShowEMA}
-        emaPeriod={emaPeriod}
-        setEmaPeriod={setEmaPeriod}
-        showMACD={showMACD}
-        setShowMACD={setShowMACD}
+        onClose={() => {
+          setIsIndicatorsOpen(false);
+          setIndicatorEditorId(null);
+        }}
+        onRemove={indicatorManager.removeIndicator}
+        onReorder={indicatorManager.reorderIndicator}
+        onReset={indicatorManager.resetIndicator}
+        onToggleFavorite={indicatorManager.toggleFavorite}
+        onToggleVisibility={indicatorManager.toggleVisibility}
+        onUpdate={indicatorManager.updateIndicator}
       />
       <AlertOverlay open={isAlertOpen} onClose={() => setIsAlertOpen(false)} />
       <ChartTypeOverlay

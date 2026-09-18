@@ -49,21 +49,27 @@ export function buildEmaSeries(candleTimes: string[], closes: number[], emaPerio
     }));
 }
 
-export function buildMacdSeries(candleTimes: string[], closes: number[]) {
-    const macdResult = calculateMACD(closes);
+export function buildMacdSeries(
+    candleTimes: string[],
+    closes: number[],
+    shortPeriod = 12,
+    longPeriod = 26,
+    signalPeriod = 9
+) {
+    const macdResult = calculateMACD(closes, shortPeriod, longPeriod, signalPeriod);
 
     const macdLine = macdResult.macdLine.map((value, index) => ({
-        time: candleTimes[index + 25],
+        time: candleTimes[index + longPeriod - 1],
         value,
     }));
 
     const signalLine = macdResult.signalLine.map((value, index) => ({
-        time: candleTimes[index + 33],
+        time: candleTimes[index + longPeriod + signalPeriod - 2],
         value,
     }));
 
     const histogram = macdResult.histogram.map((value, index) => ({
-        time: candleTimes[index + 33],
+        time: candleTimes[index + longPeriod + signalPeriod - 2],
         value,
         color: value >= 0 ? "rgba(0, 150, 136, 0.5)" : "rgba(255, 82, 82, 0.5)",
     }));

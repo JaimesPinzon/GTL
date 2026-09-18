@@ -6,7 +6,7 @@
   "scripts": {
     "test:drawing": "node scripts/test-drawing-suite.mjs",
     "test:auth": "node --test scripts/test-auth-csrf.mjs",
-    "test:operating": "node --test scripts/test-trade-form.mjs scripts/test-operating-data.mjs scripts/test-operating-integration.mjs scripts/test-room-loading.mjs",
+    "test:operating": "node --test --test-isolation=none scripts/test-trade-form.mjs scripts/test-operating-data.mjs scripts/test-operating-integration.mjs scripts/test-room-loading.mjs scripts/test-market-data-flow.mjs",
     "test:news": "node --test --test-isolation=none scripts/test-news-navigation.mjs",
     "test:portfolio": "node --test scripts/test-portfolio-analytics.mjs",
     "verify:auth-production": "node scripts/verify-auth-production.mjs",
