@@ -6,6 +6,24 @@ const backendUrl = String(
 const frontendOrigin = String(
   process.env.GTL_FRONTEND_PRODUCTION_ORIGIN || "https://globaltradelab.site"
 ).replace(/\/$/, "");
+const smokeEmail = String(process.env.GTL_AUTH_SMOKE_EMAIL || "").trim();
+const smokePassword = String(process.env.GTL_AUTH_SMOKE_PASSWORD || "");
+
+const readAuthCookies = (response) => {
+  const rawCookies = response.headers.getSetCookie?.() || [response.headers.get("set-cookie") || ""];
+  const cookies = new Map();
+  for (const rawCookie of rawCookies) {
+    const pattern = /(?:^|,\s*)((?:__Host-)?gtl_(?:csrf|rt))=([^;]+)/g;
+    for (const match of rawCookie.matchAll(pattern)) cookies.set(match[1], match[2]);
+  }
+  return cookies;
+};
+
+const mergeCookies = (target, response) => {
+  for (const [name, value] of readAuthCookies(response)) target.set(name, value);
+};
+
+const toCookieHeader = (cookies) => [...cookies].map(([name, value]) => `${name}=${value}`).join("; ");
 
 const csrfResponse = await fetch(`${backendUrl}/api/auth/csrf`, {
   headers: {
@@ -51,4 +69,58 @@ assert.notEqual(refreshResponse.status, 403, "A matching CSRF cookie/header pair
 assert.equal(refreshResponse.status, 401, "The credential-free probe must stop at the missing refresh cookie");
 assert.equal(refreshPayload?.error, "Refresh cookie is missing.");
 
-console.log(`Auth production verification passed for ${backendUrl}`);
+if (smokeEmail && smokePassword) {
+  const cookies = readAuthCookies(csrfResponse);
+  const loginResponse = await fetch(`${backendUrl}/api/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: toCookieHeader(cookies),
+      Origin: frontendOrigin,
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ email: smokeEmail, password: smokePassword }),
+  });
+  const loginPayload = await loginResponse.json().catch(() => ({}));
+  assert.equal(loginResponse.status, 200, loginPayload?.error || "Authenticated login probe failed");
+  mergeCookies(cookies, loginResponse);
+
+  const stableCsrfResponse = await fetch(`${backendUrl}/api/auth/csrf`, {
+    headers: { Cookie: toCookieHeader(cookies), Origin: frontendOrigin },
+  });
+  const stableCsrfPayload = await stableCsrfResponse.json().catch(() => ({}));
+  assert.equal(stableCsrfResponse.status, 200);
+  assert.equal(stableCsrfPayload?.csrfToken, loginPayload?.csrfToken, "CSRF must remain stable within a refresh session");
+
+  const refreshHeaders = {
+    Cookie: toCookieHeader(cookies),
+    Origin: frontendOrigin,
+    "X-CSRF-Token": loginPayload.csrfToken,
+  };
+  const [firstRefresh, secondRefresh] = await Promise.all([
+    fetch(`${backendUrl}/api/auth/refresh`, { method: "POST", headers: refreshHeaders }),
+    fetch(`${backendUrl}/api/auth/refresh`, { method: "POST", headers: refreshHeaders }),
+  ]);
+  const [firstPayload, secondPayload] = await Promise.all([
+    firstRefresh.json().catch(() => ({})),
+    secondRefresh.json().catch(() => ({})),
+  ]);
+  assert.equal(firstRefresh.status, 200, firstPayload?.error || "First concurrent refresh failed");
+  assert.equal(secondRefresh.status, 200, secondPayload?.error || "Second concurrent refresh failed");
+  assert.equal(firstPayload?.csrfToken, secondPayload?.csrfToken, "Concurrent refreshes must replay one replacement session");
+  mergeCookies(cookies, firstRefresh);
+
+  const logoutResponse = await fetch(`${backendUrl}/api/auth/logout`, {
+    method: "POST",
+    headers: {
+      Cookie: toCookieHeader(cookies),
+      Origin: frontendOrigin,
+      "X-CSRF-Token": firstPayload.csrfToken,
+    },
+  });
+  assert.equal(logoutResponse.status, 200, "Authenticated smoke session cleanup failed");
+}
+
+console.log(
+  `Auth production verification passed for ${backendUrl}${smokeEmail && smokePassword ? " (authenticated)" : ""}`
+);

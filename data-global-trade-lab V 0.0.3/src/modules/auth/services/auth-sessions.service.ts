@@ -1,22 +1,73 @@
-import { assertAuth, AuthHttpError } from "@/modules/auth/errors";
+import { authConfig } from "@/modules/auth/config";
 import { debugAuth } from "@/modules/auth/debug";
-import { nowIso, randomId, randomToken, sha256 } from "@/modules/auth/lib/crypto";
-import { readSessions, writeSessions } from "@/modules/auth/repositories/sessions.repository";
+import { assertAuth, AuthHttpError } from "@/modules/auth/errors";
+import { decryptSessionSecret, deriveCsrfToken, nowIso, randomToken, sha256 } from "@/modules/auth/lib/crypto";
+import {
+    findSessionById,
+    findSessionByTokenHash,
+    listSessionsForUser,
+    revokeAllSessionsByUser,
+    revokeSessionByIdForUser,
+    revokeSessionByTokenHash,
+    revokeSessionFamilyByTokenHash,
+    rotateSessionAtomically,
+    touchSessionCsrf,
+} from "@/modules/auth/repositories/sessions.repository";
 import { getUserById } from "@/modules/auth/repositories/users.repository";
-import { createAccessTokenPayload, createSessionPayload } from "@/modules/auth/services/internal-session-factory";
+import {
+    createAccessTokenPayload,
+    createRefreshSessionDraft,
+    createSessionPayloadFromDraft,
+} from "@/modules/auth/services/internal-session-factory";
+import { AuthSessionPayload, RefreshSessionRecord } from "@/modules/auth/types";
 
-export const bootstrapCsrfToken = async (refreshToken: string) => {
-    const csrfToken = randomToken(24);
-    if (!refreshToken) {
-        return { csrfToken };
+const isWithinReuseInterval = (session: RefreshSessionRecord) => {
+    if (session.revokedReason !== "rotated" || !session.revokedAt || !session.replacedBySessionId) return false;
+    return Date.now() - new Date(session.revokedAt).getTime() <= authConfig.refreshReuseIntervalSeconds * 1000;
+};
+
+const readReplacementSecrets = async (session: RefreshSessionRecord) => {
+    if (!isWithinReuseInterval(session) || !session.replacedBySessionId) return null;
+    const replacement = await findSessionById(session.replacedBySessionId);
+    if (
+        !replacement ||
+        replacement.revokedAt ||
+        !replacement.refreshTokenCiphertext ||
+        !replacement.csrfTokenCiphertext
+    ) {
+        return null;
     }
 
-    const sessions = await readSessions();
-    const session = sessions.find((entry) => entry.tokenHash === sha256(refreshToken) && !entry.revokedAt && !entry.replacedBySessionId);
-    if (session) {
-        session.csrfTokenHash = sha256(csrfToken);
-        session.updatedAt = nowIso();
-        await writeSessions(sessions);
+    return {
+        session: replacement,
+        refreshToken: decryptSessionSecret(replacement.refreshTokenCiphertext, authConfig.accessTokenSecret),
+        csrfToken: decryptSessionSecret(replacement.csrfTokenCiphertext, authConfig.accessTokenSecret),
+    };
+};
+
+const buildStoredSessionPayload = async (
+    session: RefreshSessionRecord,
+    refreshToken: string,
+    csrfToken: string
+): Promise<AuthSessionPayload> => {
+    const user = await getUserById(session.userId);
+    if (!user) throw new AuthHttpError(401, "Authenticated user no longer exists.");
+
+    return {
+        ...createAccessTokenPayload(user, session.id),
+        refreshToken,
+        csrfToken,
+        sessionId: session.id,
+    };
+};
+
+export const bootstrapCsrfToken = async (refreshToken: string, existingCsrfToken = "") => {
+    if (!refreshToken) return { csrfToken: existingCsrfToken || randomToken(24) };
+
+    const csrfToken = deriveCsrfToken(refreshToken, authConfig.accessTokenSecret);
+    const session = await findSessionByTokenHash(sha256(refreshToken));
+    if (session && !session.revokedAt && !session.replacedBySessionId) {
+        await touchSessionCsrf(session.id, sha256(csrfToken), nowIso());
     }
 
     return { csrfToken };
@@ -29,38 +80,25 @@ export const restoreSessionFromRefreshToken = async (input: {
 }) => {
     try {
         assertAuth(input.refreshToken, 401, "Refresh cookie is missing.");
-        const sessions = await readSessions();
-        const session = sessions.find((entry) => entry.tokenHash === sha256(input.refreshToken));
-        if (!session) {
-            throw new AuthHttpError(401, "Refresh token is invalid.");
+        const session = await findSessionByTokenHash(sha256(input.refreshToken));
+        if (!session) throw new AuthHttpError(401, "Refresh token is invalid.");
+
+        const replay = await readReplacementSecrets(session);
+        if (replay) {
+            return buildStoredSessionPayload(replay.session, replay.refreshToken, replay.csrfToken);
         }
 
         assertAuth(!session.revokedAt && !session.replacedBySessionId, 401, "Refresh token reuse detected. Session family revoked.");
         assertAuth(new Date(session.expiresAt).getTime() > Date.now(), 401, "Refresh token expired.");
 
-        const csrfToken = randomToken(24);
-        session.updatedAt = nowIso();
-        session.lastUsedAt = session.updatedAt;
-        session.csrfTokenHash = sha256(csrfToken);
-        await writeSessions(sessions);
-
-        const user = await getUserById(session.userId);
-        if (!user) {
-            throw new AuthHttpError(401, "Authenticated user no longer exists.");
-        }
-
-        const accessPayload = createAccessTokenPayload(user, session.id);
-        return {
-            ...accessPayload,
-            refreshToken: input.refreshToken,
-            csrfToken,
-            sessionId: session.id,
-        };
+        const csrfToken = deriveCsrfToken(input.refreshToken, authConfig.accessTokenSecret);
+        const updated = await touchSessionCsrf(session.id, sha256(csrfToken), nowIso());
+        assertAuth(updated, 409, "Refresh session changed concurrently. Retry the request.", {
+            code: "REFRESH_CONCURRENT_RETRY",
+        });
+        return buildStoredSessionPayload(session, input.refreshToken, csrfToken);
     } catch (error) {
-        if (error instanceof AuthHttpError) {
-            throw error;
-        }
-
+        if (error instanceof AuthHttpError) throw error;
         debugAuth("restore:unexpected-error", {
             message: error instanceof Error ? error.message : String(error),
         });
@@ -82,84 +120,67 @@ export const rotateRefreshSession = async (input: {
     assertAuth(input.refreshToken, 401, "Refresh cookie is missing.");
     assertAuth(input.csrfToken, 403, "CSRF token is missing.");
 
-    const sessions = await readSessions();
-    const session = sessions.find((entry) => entry.tokenHash === sha256(input.refreshToken));
-
-    debugAuth("refresh:session-lookup", {
-        sessionFound: Boolean(session),
-        sessionId: session?.id || null,
-        revokedAt: session?.revokedAt || null,
+    const draft = createRefreshSessionDraft(input);
+    const result = await rotateSessionAtomically({
+        currentTokenHash: sha256(input.refreshToken),
+        currentCsrfTokenHash: sha256(input.csrfToken),
+        draft,
+        reuseIntervalSeconds: authConfig.refreshReuseIntervalSeconds,
     });
 
-    if (!session) {
-        throw new AuthHttpError(401, "Refresh token is invalid.");
+    debugAuth("refresh:atomic-result", {
+        outcome: result.outcome,
+        sessionId: result.sessionId,
+    });
+
+    if (result.outcome === "missing") throw new AuthHttpError(401, "Refresh token is invalid.");
+    if (result.outcome === "csrf_mismatch") throw new AuthHttpError(403, "CSRF validation failed.");
+    if (result.outcome === "expired") throw new AuthHttpError(401, "Refresh token expired.");
+    if (result.outcome === "reused") {
+        throw new AuthHttpError(401, "Refresh token reuse detected. Session family revoked.");
+    }
+    if (result.outcome === "retry" || !result.sessionId || !result.userId) {
+        throw new AuthHttpError(409, "Refresh session changed concurrently. Retry the request.", {
+            code: "REFRESH_CONCURRENT_RETRY",
+            retryAfterMs: 150,
+        });
     }
 
-    assertAuth(!session.revokedAt && !session.replacedBySessionId, 401, "Refresh token reuse detected. Session family revoked.");
-    assertAuth(new Date(session.expiresAt).getTime() > Date.now(), 401, "Refresh token expired.");
+    const user = await getUserById(result.userId);
+    if (!user) throw new AuthHttpError(401, "Authenticated user no longer exists.");
 
-    const csrfMatch = session.csrfTokenHash === sha256(input.csrfToken);
-    debugAuth("refresh:csrf-compare", { csrfMatch });
-    assertAuth(csrfMatch, 403, "CSRF validation failed.");
+    if (result.outcome === "rotated") return createSessionPayloadFromDraft(user, draft);
 
-    session.revokedAt = nowIso();
-    session.revokedReason = "rotated";
-    session.updatedAt = nowIso();
-    session.replacedBySessionId = randomId();
-    await writeSessions(sessions);
-
-    const user = await getUserById(session.userId);
-    if (!user) {
-        throw new AuthHttpError(401, "Authenticated user no longer exists.");
+    if (!result.refreshTokenCiphertext || !result.csrfTokenCiphertext) {
+        throw new AuthHttpError(409, "Refresh session changed concurrently. Retry the request.", {
+            code: "REFRESH_CONCURRENT_RETRY",
+            retryAfterMs: 150,
+        });
     }
-
-    return createSessionPayload(user, { userAgent: input.userAgent, ipAddress: input.ipAddress }, session.familyId);
+    const refreshToken = decryptSessionSecret(result.refreshTokenCiphertext, authConfig.accessTokenSecret);
+    const csrfToken = decryptSessionSecret(result.csrfTokenCiphertext, authConfig.accessTokenSecret);
+    return {
+        ...createAccessTokenPayload(user, result.sessionId),
+        refreshToken,
+        csrfToken,
+        sessionId: result.sessionId,
+    };
 };
 
 export const revokeRefreshSession = async (refreshToken: string) => {
-    if (!refreshToken) {
-        return;
-    }
-
-    const sessions = await readSessions();
-    const session = sessions.find((entry) => entry.tokenHash === sha256(refreshToken) && !entry.revokedAt);
-    if (!session) {
-        return;
-    }
-
-    session.revokedAt = nowIso();
-    session.revokedReason = "logout";
-    session.updatedAt = nowIso();
-    await writeSessions(sessions);
+    if (!refreshToken) return;
+    await revokeSessionByTokenHash(sha256(refreshToken), "logout", nowIso());
 };
 
 export const revokeRefreshSessionFamily = async (refreshToken: string) => {
-    if (!refreshToken) {
-        return;
-    }
-
-    const sessions = await readSessions();
-    const session = sessions.find((entry) => entry.tokenHash === sha256(refreshToken));
-    if (!session) {
-        return;
-    }
-
-    const now = nowIso();
-    sessions.forEach((entry) => {
-        if (entry.familyId === session.familyId && !entry.revokedAt) {
-            entry.revokedAt = now;
-            entry.revokedReason = "logout_all";
-            entry.updatedAt = now;
-        }
-    });
-
-    await writeSessions(sessions);
+    if (!refreshToken) return;
+    await revokeSessionFamilyByTokenHash(sha256(refreshToken), "logout_all", nowIso());
 };
 
 export const listActiveSessionsForUser = async (userId: string, currentSessionId?: string) => {
-    const sessions = await readSessions();
+    const sessions = await listSessionsForUser(userId);
     return sessions
-        .filter((entry) => entry.userId === userId && !entry.revokedAt && new Date(entry.expiresAt).getTime() > Date.now())
+        .filter((entry) => !entry.revokedAt && new Date(entry.expiresAt).getTime() > Date.now())
         .sort((left, right) => (left.lastUsedAt < right.lastUsedAt ? 1 : -1))
         .map((entry) => ({
             id: entry.id,
@@ -172,35 +193,8 @@ export const listActiveSessionsForUser = async (userId: string, currentSessionId
         }));
 };
 
-export const revokeRefreshSessionById = async (userId: string, sessionId: string) => {
-    const sessions = await readSessions();
-    const session = sessions.find((entry) => entry.id === sessionId && entry.userId === userId);
-    if (!session || session.revokedAt) {
-        return false;
-    }
+export const revokeRefreshSessionById = (userId: string, sessionId: string) =>
+    revokeSessionByIdForUser(userId, sessionId, "device_logout", nowIso());
 
-    session.revokedAt = nowIso();
-    session.revokedReason = "device_logout";
-    session.updatedAt = nowIso();
-    await writeSessions(sessions);
-    return true;
-};
-
-export const revokeAllSessionsForUser = async (userId: string, reason = "security_event") => {
-    const sessions = await readSessions();
-    const now = nowIso();
-    let changed = false;
-
-    sessions.forEach((entry) => {
-        if (entry.userId === userId && !entry.revokedAt) {
-            entry.revokedAt = now;
-            entry.revokedReason = reason;
-            entry.updatedAt = now;
-            changed = true;
-        }
-    });
-
-    if (changed) {
-        await writeSessions(sessions);
-    }
-};
+export const revokeAllSessionsForUser = (userId: string, reason = "security_event") =>
+    revokeAllSessionsByUser(userId, reason, nowIso());

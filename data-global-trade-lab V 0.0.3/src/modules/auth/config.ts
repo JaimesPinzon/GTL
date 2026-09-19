@@ -29,6 +29,7 @@ export const authConfig = {
     accessTokenSecret: serverEnv.AUTH_ACCESS_TOKEN_SECRET,
     accessTokenTtlSeconds: serverEnv.AUTH_ACCESS_TOKEN_TTL_SECONDS,
     refreshTokenTtlSeconds: serverEnv.AUTH_REFRESH_TOKEN_TTL_SECONDS,
+    refreshReuseIntervalSeconds: Math.max(1, Math.min(serverEnv.AUTH_REFRESH_REUSE_INTERVAL_SECONDS, 60)),
     csrfCookieTtlSeconds: serverEnv.AUTH_CSRF_COOKIE_TTL_SECONDS,
     dataDirectory: path.resolve(process.cwd(), serverEnv.AUTH_DATA_DIRECTORY),
     debug: serverEnv.AUTH_DEBUG,

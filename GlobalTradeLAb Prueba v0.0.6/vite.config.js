@@ -118,8 +118,9 @@ window.fetch = function(...args) {
 					const requestUrl = response.url;
 					const normalizedUrl = String(requestUrl || response.url || '');
 					const isExpectedBootstrapAuthMiss =
-						(normalizedUrl.includes('/api/auth/refresh') || normalizedUrl.includes('/api/auth/restore')) &&
-						response.status === 401;
+						(response.status === 401 && normalizedUrl.includes('/api/')) ||
+						(response.status === 403 && normalizedUrl.includes('/api/auth/refresh')) ||
+						(response.status === 409 && normalizedUrl.includes('/api/auth/refresh'));
 
 					if (isExpectedBootstrapAuthMiss) {
 						return response;

@@ -18,6 +18,8 @@ export type RefreshSessionRecord = {
     familyId: string;
     tokenHash: string;
     csrfTokenHash: string;
+    refreshTokenCiphertext: string | null;
+    csrfTokenCiphertext: string | null;
     createdAt: string;
     updatedAt: string;
     lastUsedAt: string;
@@ -52,6 +54,20 @@ export type AuthSessionPayload = {
 };
 
 export type AuthRequestMeta = {
+    userAgent: string;
+    ipAddress: string;
+};
+
+export type RefreshSessionDraft = {
+    sessionId: string;
+    refreshToken: string;
+    csrfToken: string;
+    tokenHash: string;
+    csrfTokenHash: string;
+    refreshTokenCiphertext: string;
+    csrfTokenCiphertext: string;
+    createdAt: string;
+    expiresAt: string;
     userAgent: string;
     ipAddress: string;
 };

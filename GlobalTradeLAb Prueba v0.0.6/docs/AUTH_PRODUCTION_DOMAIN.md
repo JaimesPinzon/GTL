@@ -19,6 +19,8 @@ La arquitectura objetivo es:
    - `AUTH_SESSION_STORE=supabase`
 5. Desplegar el frontend. `.env.production` ya dirige API, auth y mercado al subdominio propio.
 6. Ejecutar `npm run verify:auth-production` desde el proyecto frontend.
+   Para incluir login y dos refresh simultaneos, definir temporalmente
+   `GTL_AUTH_SMOKE_EMAIL` y `GTL_AUTH_SMOKE_PASSWORD` con una cuenta de pruebas.
 7. Validar login, recarga, expiracion del access token, refresh, logout y dos pestanas simultaneas.
 
 ## Validacion de cabeceras

@@ -9,9 +9,9 @@ const jsonResponse = (status, payload) => ({
   json: async () => payload,
 });
 
-const createAuthHarness = ({ fetchImpl }) => {
+const createAuthHarness = ({ fetchImpl, sharedStorage, BroadcastChannelImpl, navigatorImpl }) => {
   const deletedCookies = [];
-  const storage = new Map();
+  const storage = sharedStorage || new Map();
   const document = {
     get cookie() {
       // Simulates an old cookie owned by globaltradelab.site. The auth client
@@ -35,6 +35,9 @@ const createAuthHarness = ({ fetchImpl }) => {
     },
     setTimeout,
   };
+  if (BroadcastChannelImpl) {
+    window.BroadcastChannel = BroadcastChannelImpl;
+  }
   const supabase = {
     auth: {
       getSession: async () => ({ data: { session: null }, error: null }),
@@ -61,6 +64,8 @@ const createAuthHarness = ({ fetchImpl }) => {
     {
       document,
       fetch: fetchImpl,
+      ...(BroadcastChannelImpl ? { BroadcastChannel: BroadcastChannelImpl } : {}),
+      ...(navigatorImpl ? { navigator: navigatorImpl } : {}),
       window,
     }
   );
@@ -97,9 +102,81 @@ test("uses the CSRF token returned by JSON and ignores a stale frontend cookie",
   await auth.bootstrapCsrf();
   await auth.refreshSession();
 
-  assert.equal(calls.filter(({ url }) => url.endsWith("/api/auth/csrf")).length, 1);
+  assert.equal(calls.filter(({ url }) => url.endsWith("/api/auth/csrf")).length, 2);
   assert.ok(deletedCookies.some((cookie) => cookie.startsWith("gtl_csrf=; Path=/; Max-Age=0")));
   assert.ok(deletedCookies.some((cookie) => cookie.startsWith("__Host-gtl_csrf=; Path=/; Max-Age=0")));
+});
+
+test("coordinates CSRF and refresh across two tabs", async () => {
+  const channels = new Map();
+  class FakeBroadcastChannel {
+    constructor(name) {
+      this.name = name;
+      this.listeners = new Set();
+      const entries = channels.get(name) || new Set();
+      entries.add(this);
+      channels.set(name, entries);
+    }
+    addEventListener(type, listener) {
+      if (type === "message") this.listeners.add(listener);
+    }
+    postMessage(data) {
+      for (const channel of channels.get(this.name) || []) {
+        if (channel === this) continue;
+        for (const listener of channel.listeners) {
+          setTimeout(() => listener({ data }), 0);
+        }
+      }
+    }
+  }
+
+  let lockTail = Promise.resolve();
+  const navigatorImpl = {
+    locks: {
+      request: (_name, _options, action) => {
+        const result = lockTail.then(action);
+        lockTail = result.catch(() => {});
+        return result;
+      },
+    },
+  };
+
+  const backend = { csrfToken: "csrf-0", generation: 0, activeRequests: 0, maxActiveRequests: 0 };
+  const fetchImpl = async (url, options = {}) => {
+    if (url.endsWith("/api/auth/csrf")) {
+      return jsonResponse(200, { ok: true, csrfToken: backend.csrfToken });
+    }
+    if (url.endsWith("/api/auth/refresh")) {
+      backend.activeRequests += 1;
+      backend.maxActiveRequests = Math.max(backend.maxActiveRequests, backend.activeRequests);
+      try {
+        assert.equal(options.headers["X-CSRF-Token"], backend.csrfToken);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        backend.generation += 1;
+        backend.csrfToken = `csrf-${backend.generation}`;
+        return jsonResponse(200, {
+          ok: true,
+          accessToken: `backend-access-token-${backend.generation}`,
+          accessTokenExpiresIn: 900,
+          csrfToken: backend.csrfToken,
+          user: { id: "user-1" },
+        });
+      } finally {
+        backend.activeRequests -= 1;
+      }
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  const sharedStorage = new Map();
+  const firstTab = createAuthHarness({ fetchImpl, sharedStorage, BroadcastChannelImpl: FakeBroadcastChannel, navigatorImpl });
+  const secondTab = createAuthHarness({ fetchImpl, sharedStorage, BroadcastChannelImpl: FakeBroadcastChannel, navigatorImpl });
+
+  await Promise.all([firstTab.auth.bootstrapCsrf(), secondTab.auth.bootstrapCsrf()]);
+  await Promise.all([firstTab.auth.refreshSession("access-expired"), secondTab.auth.refreshSession("access-expired")]);
+
+  assert.equal(backend.maxActiveRequests, 1);
+  assert.equal(backend.generation, 2);
 });
 
 test("deduplicates concurrent refresh requests", async () => {

@@ -49,8 +49,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     return withAuthErrors(request, async () => {
         if (action === "csrf") {
-            const { refreshToken } = getAuthCookies(request);
-            const result = await issueBootstrapCsrf(refreshToken);
+            const { refreshToken, csrfToken } = getAuthCookies(request);
+            const result = await issueBootstrapCsrf(refreshToken, csrfToken);
             const response = authJson(request, { ok: true, csrfToken: result.csrfToken });
             setCsrfCookie(response, result.csrfToken);
             return response;

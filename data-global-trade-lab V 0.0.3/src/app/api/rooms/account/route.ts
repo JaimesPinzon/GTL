@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
 import { getAuthenticatedUser } from "@/modules/auth";
@@ -52,9 +53,37 @@ const buildCorsHeaders = (request: Request) => ({
   "Access-Control-Allow-Origin": resolveCorsOrigin(request),
   "Access-Control-Allow-Methods": "GET,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-CSRF-Token",
+  "Access-Control-Expose-Headers": "X-Request-Id",
   "Access-Control-Allow-Credentials": "true",
   Vary: "Origin",
 });
+
+const buildRequestHeaders = (request: Request, requestId: string) => ({
+  ...buildCorsHeaders(request),
+  "X-Request-Id": requestId,
+});
+
+const serializeDatabaseError = (error: unknown) => {
+  const value = (error || {}) as { code?: string; message?: string; details?: string; hint?: string };
+  return {
+    code: value.code || null,
+    message: value.message || "Unknown database error",
+    details: value.details || null,
+    hint: value.hint || null,
+  };
+};
+
+const roomAccountError = (requestId: string, headers: Record<string, string>, stage: string, error: unknown) => {
+  console.error("room account query failed", {
+    requestId,
+    stage,
+    ...serializeDatabaseError(error),
+  });
+  return NextResponse.json(
+    { ok: false, error: "Failed to load room account.", requestId },
+    { status: 500, headers }
+  );
+};
 
 type RoomGroupStateRow = {
   state?: string | null;
@@ -96,9 +125,9 @@ function getAccessToken(request: Request) {
   return match?.[1]?.trim() || "";
 }
 
-async function requireUser(request: Request) {
+async function requireUser(request: Request, requestId: string) {
   const accessToken = getAccessToken(request);
-  const corsHeaders = buildCorsHeaders(request);
+  const corsHeaders = buildRequestHeaders(request, requestId);
 
   if (!accessToken) {
     return { error: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders }) };
@@ -123,8 +152,9 @@ export async function OPTIONS(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const corsHeaders = buildCorsHeaders(request);
-  const auth = await requireUser(request);
+  const requestId = request.headers.get("x-request-id")?.trim() || randomUUID();
+  const corsHeaders = buildRequestHeaders(request, requestId);
+  const auth = await requireUser(request, requestId);
   if (auth.error) {
     return auth.error;
   }
@@ -136,8 +166,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "roomId is required." }, { status: 400, headers: corsHeaders });
   }
 
-  const [{ data: roomMember, error: roomMemberError }, { data: groupMembership, error: groupMembershipError }] =
-    await Promise.all([
+  let roomMemberResult;
+  let groupMembershipResult;
+  try {
+    [roomMemberResult, groupMembershipResult] = await Promise.all([
       supabaseAdmin
         .from("room_members")
         .select(
@@ -157,13 +189,19 @@ export async function GET(request: Request) {
         .eq("state", "active")
         .maybeSingle<RoomGroupMembershipRow>(),
     ]);
+  } catch (error) {
+    return roomAccountError(requestId, corsHeaders, "request", error);
+  }
+
+  const { data: roomMember, error: roomMemberError } = roomMemberResult;
+  const { data: groupMembership, error: groupMembershipError } = groupMembershipResult;
 
   if (roomMemberError) {
-    return NextResponse.json({ ok: false, error: roomMemberError.message }, { status: 500, headers: corsHeaders });
+    return roomAccountError(requestId, corsHeaders, "room_members", roomMemberError);
   }
 
   if (groupMembershipError) {
-    return NextResponse.json({ ok: false, error: groupMembershipError.message }, { status: 500, headers: corsHeaders });
+    return roomAccountError(requestId, corsHeaders, "room_group_members", groupMembershipError);
   }
 
   if (!roomMember) {

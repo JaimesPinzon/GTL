@@ -25,6 +25,8 @@ const OAUTH_CALLBACK_SESSION_ATTEMPTS = 40;
 const OAUTH_CALLBACK_SESSION_DELAY_MS = 200;
 const OAUTH_BRIDGE_RETRY_ATTEMPTS = 24;
 const OAUTH_BRIDGE_RETRY_DELAY_MS = 250;
+const REFRESH_CONCURRENT_RETRY_ATTEMPTS = 3;
+const REFRESH_LOCK_NAME = "gtl-auth-refresh";
 const CSRF_COOKIE_NAMES = ["__Host-gtl_csrf", "gtl_csrf"];
 
 const clearLegacyFrontendCsrfCookies = () => {
@@ -179,6 +181,15 @@ const emitAuthEvent = (event) => {
   broadcastChannel?.postMessage(event);
 };
 
+const broadcastCsrfToken = (token, source) => {
+  if (!token) return;
+  broadcastChannel?.postMessage({
+    type: "csrf-updated",
+    source,
+    csrfToken: token,
+  });
+};
+
 broadcastChannel?.addEventListener("message", (message) => {
   const event = message.data;
 
@@ -263,6 +274,18 @@ const isCsrfValidationError = (error) => {
 
   const message = String(error?.payload?.error || error?.message || "").toLowerCase();
   return message.includes("csrf");
+};
+
+const isConcurrentRefreshError = (error) =>
+  error?.status === 409 &&
+  String(error?.payload?.details?.code || "").toUpperCase() === "REFRESH_CONCURRENT_RETRY";
+
+const withCrossTabRefreshLock = async (action) => {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : null;
+  if (!locks?.request) {
+    return action();
+  }
+  return locks.request(REFRESH_LOCK_NAME, { mode: "exclusive" }, action);
 };
 
 const request = async (
@@ -356,6 +379,7 @@ export const bootstrapCsrf = async () => {
         csrfBootstrapPromise = null;
         csrfFailureCooldownUntil = 0;
         setCsrfToken(nextCsrfToken);
+        broadcastCsrfToken(nextCsrfToken, "csrf-bootstrap");
         return nextCsrfToken;
       })
       .catch((error) => {
@@ -382,6 +406,8 @@ const applySessionPayload = (payload, source) => {
       user: payload.user,
       csrfToken: payload.csrfToken || getCsrfToken(),
     });
+  } else {
+    broadcastCsrfToken(payload.csrfToken || getCsrfToken(), source);
   }
   return payload;
 };
@@ -630,14 +656,35 @@ export const registerWithPassword = async ({ name, email, password, role }) => {
 
 export const refreshSession = async (source = "refresh") => {
   if (!refreshPromise) {
-    refreshPromise = request("/api/auth/refresh", {
-      method: "POST",
-      csrf: true,
-    })
-      .then((payload) => {
-        return applySessionPayload(payload, source);
-      })
-      .catch((error) => {
+    refreshPromise = withCrossTabRefreshLock(async () => {
+      // Cookies are shared between tabs, while the in-memory CSRF token is not.
+      // Re-read the token after acquiring the cross-tab lock so it always
+      // belongs to the refresh cookie that the browser is about to send.
+      setCsrfToken("");
+      await bootstrapCsrf();
+
+      let lastError = null;
+      for (let attempt = 0; attempt < REFRESH_CONCURRENT_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+          const payload = await request("/api/auth/refresh", {
+            method: "POST",
+            csrf: true,
+          });
+          return applySessionPayload(payload, source);
+        } catch (error) {
+          lastError = error;
+          if (!isConcurrentRefreshError(error) || attempt >= REFRESH_CONCURRENT_RETRY_ATTEMPTS - 1) {
+            throw error;
+          }
+
+          setCsrfToken("");
+          const retryAfterMs = Math.max(50, Number(error?.payload?.details?.retryAfterMs || 150));
+          await wait(retryAfterMs * (attempt + 1));
+          await bootstrapCsrf();
+        }
+      }
+      throw lastError;
+    }).catch((error) => {
         clearAccessToken();
         if (error?.status === 401 || error?.status === 403) {
           setCsrfToken("");
