@@ -140,6 +140,7 @@ const DrawingPropertiesPanel = ({
   onSetHidden,
   onSetExplanationVisible,
   onUpdate,
+  toolbarInsetLeft = 8,
 }) => {
   const { t } = useTranslation();
   const panelRef = useRef(null);
@@ -210,11 +211,12 @@ const DrawingPropertiesPanel = ({
     event.preventDefault();
     event.stopPropagation();
     const parentRect = parent.getBoundingClientRect();
-    const maxX = Math.max(8, parentRect.width - panel.offsetWidth - 8);
+    const minX = Math.max(8, toolbarInsetLeft);
+    const maxX = Math.max(minX, parentRect.width - panel.offsetWidth - 8);
     const maxY = Math.max(8, parentRect.height - panel.offsetHeight - 8);
     setPlacement((current) => ({
       ...current,
-      x: Math.min(maxX, Math.max(8, event.clientX - parentRect.left - drag.offsetX)),
+      x: Math.min(maxX, Math.max(minX, event.clientX - parentRect.left - drag.offsetX)),
       y: Math.min(maxY, Math.max(8, event.clientY - parentRect.top - drag.offsetY)),
     }));
   };
@@ -227,7 +229,12 @@ const DrawingPropertiesPanel = ({
     dragRef.current = null;
   };
 
-  const panelStyle = { left: placement.x, top: placement.y };
+  const safeLeft = Math.max(toolbarInsetLeft, placement.x);
+  const panelStyle = {
+    left: safeLeft,
+    top: placement.y,
+    maxWidth: `calc(100% - ${safeLeft + 8}px)`,
+  };
 
   return (
     <div
@@ -242,7 +249,7 @@ const DrawingPropertiesPanel = ({
         onPointerMove={movePanel}
         onPointerUp={endPanelDrag}
         onPointerCancel={endPanelDrag}
-        onDoubleClick={() => setPlacement((current) => ({ ...current, x: 8, y: 8 }))}
+        onDoubleClick={() => setPlacement((current) => ({ ...current, x: toolbarInsetLeft, y: 8 }))}
         disabled={placement.pinned}
         className="flex h-8 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-primary active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-35"
         title={placement.pinned

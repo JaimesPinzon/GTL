@@ -56,6 +56,7 @@ const DrawingLayer = ({
   selectedDrawing,
   selectedDrawingId,
   seriesRef,
+  toolbarInsetLeft = 8,
 }) => {
   const { t } = useTranslation();
   const [viewport, setViewport] = useState({ width: 0, height: 0, revision: 0 });
@@ -385,6 +386,7 @@ const DrawingLayer = ({
         onSetHidden={onSetHidden}
         onSetExplanationVisible={onSetExplanationVisible}
         onUpdate={onUpdate}
+        toolbarInsetLeft={toolbarInsetLeft}
       />
 
       {contextMenu ? (

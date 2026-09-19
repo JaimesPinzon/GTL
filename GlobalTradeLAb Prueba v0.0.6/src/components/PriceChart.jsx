@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BellPlus, Check, Eye, EyeOff, Minus, Settings, ShoppingCart, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
+import { BarChart2, BellPlus, Check, ChevronDown, Eye, EyeOff, Minus, Settings, ShoppingCart, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useTradingWorkspace } from "@/features/classes/hooks/useTradingWorkspace";
 import {
   Dialog,
@@ -71,9 +71,11 @@ const PriceChart = ({
   const seriesRef = useRef(null);
   const renderedDataRef = useRef([]);
   const syncMacdVisibilityRef = useRef(() => {});
+  const indicatorMenuRef = useRef(null);
   const [magnetMode, setMagnetMode] = useState("weak");
   const [keepToolActive, setKeepToolActive] = useState(false);
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [isIndicatorMenuOpen, setIsIndicatorMenuOpen] = useState(false);
   const [symbolNews, setSymbolNews] = useState([]);
 
   const {
@@ -99,6 +101,23 @@ const PriceChart = ({
   const currentUserId = user?.id || user?.user_id || null;
   const canManageEducationalDrawings = user?.role === "teacher" || ["teacher", "monitor"].includes(activeClass?.membershipRole);
   const focusedNewsId = searchParams.get("news");
+
+  useEffect(() => {
+    if (!isIndicatorMenuOpen) return undefined;
+
+    const closeIndicatorMenu = (event) => {
+      if (!indicatorMenuRef.current?.contains(event.target)) {
+        setIsIndicatorMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", closeIndicatorMenu);
+    return () => window.removeEventListener("pointerdown", closeIndicatorMenu);
+  }, [isIndicatorMenuOpen]);
+
+  useEffect(() => {
+    if (indicatorInstances.length === 0) setIsIndicatorMenuOpen(false);
+  }, [indicatorInstances.length]);
 
   const {
     formattedSeriesData,
@@ -332,11 +351,7 @@ const PriceChart = ({
         chartAppearance={chartAppearance}
       />
 
-      <div
-        className="relative flex-1 min-h-0"
-        onPointerMove={overlay.handlePointerMoveOverChartArea}
-        onPointerLeave={overlay.clearPriceOverlay}
-      >
+      <div className="relative flex min-h-0 flex-1 flex-col">
         <ChartToolSidebar
           activeTool={activeTool}
           keepToolActive={keepToolActive}
@@ -350,29 +365,75 @@ const PriceChart = ({
         />
 
         <div
+          className="relative min-h-0 flex-1"
+          onPointerMove={overlay.handlePointerMoveOverChartArea}
+          onPointerLeave={overlay.clearPriceOverlay}
+        >
+
+        <div
           className={`chart-container h-full min-h-0 ${overlay.isOverPriceUI ? "cursor-default" : "cursor-crosshair"}`}
           ref={chartContainerRef}
           style={{ height: "100%" }}
         />
 
-        {indicatorInstances.length ? (
-          <div className="pointer-events-auto absolute left-14 top-3 z-20 flex max-w-[calc(100%-8rem)] flex-wrap gap-1.5">
-            {indicatorInstances.map((instance) => (
-              <div key={instance.id} className="app-chrome-panel flex h-8 items-center gap-1 rounded-lg border border-border/80 px-2 text-[11px] font-semibold text-foreground shadow-md">
-                <span className="max-w-32 truncate">
-                  {instance.id === "ema"
-                    ? `EMA ${instance.parameters.period}`
-                    : `MACD ${instance.parameters.shortPeriod} ${instance.parameters.longPeriod} ${instance.parameters.signalPeriod}`}
+          {indicatorInstances.length ? (
+            <div
+              ref={indicatorMenuRef}
+              className="pointer-events-auto absolute top-3 z-[25]"
+              style={{ left: showToolSidebar ? 56 : 12 }}
+            >
+              <button
+                type="button"
+                onClick={() => setIsIndicatorMenuOpen((open) => !open)}
+                className={`relative flex h-9 w-9 items-center justify-center rounded-xl border shadow-lg transition ${
+                  isIndicatorMenuOpen
+                    ? "border-primary/50 bg-primary/15 text-primary"
+                    : "app-chrome-panel border-border/80 text-muted-foreground hover:border-primary/40 hover:text-primary"
+                }`}
+                title={t("priceChart.indicators.quickMenu")}
+                aria-expanded={isIndicatorMenuOpen}
+              >
+                <BarChart2 className="h-4 w-4" />
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
+                  {indicatorInstances.length}
                 </span>
-                <button type="button" onClick={() => onToggleIndicatorVisibility?.(instance.id)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title={instance.visible ? t("priceChart.indicators.hide") : t("priceChart.indicators.show")}>
-                  {instance.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                </button>
-                <button type="button" onClick={() => onOpenIndicatorSettings?.(instance.id)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title={t("priceChart.indicators.settings")}><Settings className="h-3.5 w-3.5" /></button>
-                <button type="button" onClick={() => onRemoveIndicator?.(instance.id)} className="rounded p-1 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400" title={t("priceChart.indicators.remove")}><X className="h-3.5 w-3.5" /></button>
-              </div>
-            ))}
-          </div>
-        ) : null}
+              </button>
+
+              {isIndicatorMenuOpen ? (
+                <div className="app-chrome-strong absolute left-0 top-full mt-2 w-72 overflow-hidden rounded-2xl border border-border/80 bg-background/95 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+                  <div className="flex items-center justify-between border-b border-border/70 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <BarChart2 className="h-4 w-4 text-primary" />
+                      <span className="text-xs font-semibold text-foreground">{t("priceChart.indicators.applied")}</span>
+                    </div>
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto p-1.5">
+                    {indicatorInstances.map((instance) => (
+                      <div key={instance.id} className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-accent/50">
+                        <div className={`h-2 w-2 shrink-0 rounded-full ${instance.visible ? "bg-emerald-400" : "bg-muted-foreground/40"}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-semibold text-foreground">
+                            {instance.id === "ema"
+                              ? `EMA ${instance.parameters.period}`
+                              : `MACD ${instance.parameters.shortPeriod} ${instance.parameters.longPeriod} ${instance.parameters.signalPeriod}`}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {instance.visible ? t("priceChart.indicators.visible") : t("priceChart.indicators.hidden")}
+                          </p>
+                        </div>
+                        <button type="button" onClick={() => onToggleIndicatorVisibility?.(instance.id)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" title={instance.visible ? t("priceChart.indicators.hide") : t("priceChart.indicators.show")}>
+                          {instance.visible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                        </button>
+                        <button type="button" onClick={() => { setIsIndicatorMenuOpen(false); onOpenIndicatorSettings?.(instance.id); }} className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" title={t("priceChart.indicators.settings")}><Settings className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => onRemoveIndicator?.(instance.id)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400" title={t("priceChart.indicators.remove")}><X className="h-4 w-4" /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
         {newsMarkers.length ? <div className="pointer-events-none absolute right-3 top-3 z-20 rounded-full border border-sky-400/25 bg-background/90 px-3 py-1 text-[11px] font-medium text-sky-300 shadow-md">{t("priceChart.newsMarkers.count", { count: newsMarkers.length })}</div> : null}
 
@@ -386,6 +447,7 @@ const PriceChart = ({
           activeClassId={activeClassId}
           canManageEducationalDrawings={canManageEducationalDrawings}
           currentUserId={currentUserId}
+          toolbarInsetLeft={(showToolSidebar ? 56 : 8) + (indicatorInstances.length ? 48 : 0)}
           drawings={drawings.visibleDrawings}
           hasCopiedStyle={drawings.hasCopiedStyle}
           onBeginDrag={drawings.beginDrag}
@@ -534,7 +596,8 @@ const PriceChart = ({
         </div>
       </div>
 
-      {showMACD ? <div className="macd-chart-container mt-1 h-[120px] shrink-0" ref={macdChartContainerRef} /> : null}
+        {showMACD ? <div className="macd-chart-container mt-1 h-[120px] shrink-0" ref={macdChartContainerRef} /> : null}
+      </div>
 
       <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
         <DialogContent className="app-chrome-strong overflow-hidden border border-primary/20 bg-background/95 p-0 shadow-[0_28px_90px_rgba(0,0,0,0.65)] backdrop-blur-xl sm:max-w-md">
