@@ -2,7 +2,10 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
-import { getQuotesFromBackend } from "@/lib/backend-market";
+import {
+  getQuotesFromBackend,
+  MARKET_QUOTES_REFRESH_INTERVAL_MS,
+} from "@/lib/backend-market";
 import { resolveMarketSnapshot } from "@/lib/market-price";
 import { CLASS_CONTEXT_PATHS } from "@/lib/routes";
 import { ENABLED_MARKET_ASSETS } from "@/lib/market-assets";
@@ -54,10 +57,18 @@ export const ClassMarketContextProvider = ({ children }) => {
     setQuoteData({});
     setChartSnapshots({});
 
-    const refreshQuotes = async ({ initial = false } = {}) => {
+    let refreshInFlight = false;
+
+    const refreshQuotes = async ({ initial = false, force = false } = {}) => {
+      if (refreshInFlight) {
+        return;
+      }
+
+      refreshInFlight = true;
       try {
         const latestQuotes = await getQuotesFromBackend(
-          SYMBOL_TEMPLATES.map((symbol) => symbol.id)
+          SYMBOL_TEMPLATES.map((symbol) => symbol.id),
+          { force }
         );
 
         if (!isMounted) {
@@ -79,6 +90,7 @@ export const ClassMarketContextProvider = ({ children }) => {
       } catch (error) {
         console.error("refreshClassQuotes error", error);
       } finally {
+        refreshInFlight = false;
         if (isMounted && initial) {
           setIsMarketLoading(false);
         }
@@ -86,7 +98,10 @@ export const ClassMarketContextProvider = ({ children }) => {
     };
 
     void refreshQuotes({ initial: true });
-    const interval = window.setInterval(() => void refreshQuotes(), 30000);
+    const interval = window.setInterval(
+      () => void refreshQuotes({ force: true }),
+      MARKET_QUOTES_REFRESH_INTERVAL_MS
+    );
 
     return () => {
       isMounted = false;

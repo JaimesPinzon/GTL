@@ -8,10 +8,15 @@ const BACKEND_SYMBOL_MAP = Object.fromEntries(
 );
 
 const MARKET_HISTORY_CACHE_STORAGE_KEY = "gtl:market-history-cache";
+const MARKET_QUOTES_CACHE_STORAGE_KEY = "gtl:market-quotes-cache:v1";
 const MAX_MARKET_HISTORY_CACHE_ENTRIES = 30;
+export const MARKET_QUOTES_REFRESH_INTERVAL_MS = 108 * 1000;
 const marketHistoryCache = new Map();
 const pendingMarketHistoryRequests = new Map();
+const marketQuotesCache = new Map();
+const pendingMarketQuotesRequests = new Map();
 let hasLoadedPersistedHistoryCache = false;
+let hasLoadedPersistedQuotesCache = false;
 
 const resolveDrawingAccessToken = async (accessToken = null) => {
   if (accessToken) return accessToken;
@@ -32,6 +37,76 @@ const getHistoryCacheKey = (backendSymbols, limit, timeframe) =>
 const getHistoryCacheTtl = (timeframe) => HISTORY_CACHE_TTL_MS[timeframe] ?? 5 * 60 * 1000;
 
 const canUseStorage = () => typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+
+const loadPersistedQuotesCache = () => {
+  if (hasLoadedPersistedQuotesCache || !canUseStorage()) {
+    return;
+  }
+
+  hasLoadedPersistedQuotesCache = true;
+
+  try {
+    const rawCache = window.sessionStorage.getItem(MARKET_QUOTES_CACHE_STORAGE_KEY);
+    const parsedEntries = rawCache ? JSON.parse(rawCache) : [];
+
+    if (Array.isArray(parsedEntries)) {
+      parsedEntries.forEach((entry) => {
+        if (
+          Array.isArray(entry) &&
+          entry.length === 2 &&
+          typeof entry[0] === "string" &&
+          Number.isFinite(entry[1]?.timestamp) &&
+          Array.isArray(entry[1]?.data)
+        ) {
+          marketQuotesCache.set(entry[0], entry[1]);
+        }
+      });
+    }
+  } catch {
+    // Ignore malformed or unavailable session storage.
+  }
+};
+
+const persistQuotesCache = () => {
+  if (!canUseStorage()) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      MARKET_QUOTES_CACHE_STORAGE_KEY,
+      JSON.stringify(Array.from(marketQuotesCache.entries()))
+    );
+  } catch {
+    // Ignore storage quota or serialization errors.
+  }
+};
+
+const getCachedQuotes = (cacheKey) => {
+  loadPersistedQuotesCache();
+  const cachedEntry = marketQuotesCache.get(cacheKey);
+
+  if (!cachedEntry) {
+    return null;
+  }
+
+  if (Date.now() - cachedEntry.timestamp > MARKET_QUOTES_REFRESH_INTERVAL_MS) {
+    marketQuotesCache.delete(cacheKey);
+    persistQuotesCache();
+    return null;
+  }
+
+  return cachedEntry.data;
+};
+
+const setCachedQuotes = (cacheKey, data) => {
+  marketQuotesCache.clear();
+  marketQuotesCache.set(cacheKey, {
+    timestamp: Date.now(),
+    data,
+  });
+  persistQuotesCache();
+};
 
 const pruneHistoryCache = () => {
   while (marketHistoryCache.size > MAX_MARKET_HISTORY_CACHE_ENTRIES) {
@@ -178,7 +253,7 @@ export const getQuoteFromBackend = async (symbol) => {
   return payload.data;
 };
 
-export const getQuotesFromBackend = async (symbols) => {
+export const getQuotesFromBackend = async (symbols, { force = false } = {}) => {
   const backendSymbols = symbols
     .map((symbol) => ({
       localSymbol: symbol,
@@ -190,37 +265,64 @@ export const getQuotesFromBackend = async (symbols) => {
     return [];
   }
 
-  const response = await fetch(
-    `${getMarketBackendUrl("/api/market/quotes")}?symbols=${encodeURIComponent(
-      backendSymbols.map((entry) => entry.backendSymbol).join(",")
-    )}`,
-    { cache: "no-store" }
-  );
+  const cacheKey = backendSymbols
+    .map((entry) => `${entry.localSymbol}:${entry.backendSymbol}`)
+    .join(",");
+  const cachedQuotes = force ? null : getCachedQuotes(cacheKey);
 
-  if (!response.ok) {
-    return backendSymbols.map((entry) => ({
-      requestedSymbol: entry.backendSymbol,
-      localSymbol: entry.localSymbol,
-      ok: false,
-      error: `Backend market batch request failed with status ${response.status}`,
-    }));
+  if (cachedQuotes) {
+    return cachedQuotes;
   }
 
-  const payload = await response.json();
-
-  if (!payload?.ok || !Array.isArray(payload.results)) {
-    return backendSymbols.map((entry) => ({
-      requestedSymbol: entry.backendSymbol,
-      localSymbol: entry.localSymbol,
-      ok: false,
-      error: payload?.error || "Market backend batch returned an error",
-    }));
+  const pendingRequest = pendingMarketQuotesRequests.get(cacheKey);
+  if (pendingRequest) {
+    return pendingRequest;
   }
 
-  return payload.results.map((result, index) => ({
-    ...result,
-    localSymbol: backendSymbols[index]?.localSymbol ?? result.requestedSymbol,
-  }));
+  const request = (async () => {
+    const response = await fetch(
+      `${getMarketBackendUrl("/api/market/quotes")}?symbols=${encodeURIComponent(
+        backendSymbols.map((entry) => entry.backendSymbol).join(",")
+      )}`,
+      { cache: "no-store" }
+    );
+
+    if (!response.ok) {
+      return backendSymbols.map((entry) => ({
+        requestedSymbol: entry.backendSymbol,
+        localSymbol: entry.localSymbol,
+        ok: false,
+        error: `Backend market batch request failed with status ${response.status}`,
+      }));
+    }
+
+    const payload = await response.json();
+
+    if (!payload?.ok || !Array.isArray(payload.results)) {
+      return backendSymbols.map((entry) => ({
+        requestedSymbol: entry.backendSymbol,
+        localSymbol: entry.localSymbol,
+        ok: false,
+        error: payload?.error || "Market backend batch returned an error",
+      }));
+    }
+
+    const mappedResults = payload.results.map((result, index) => ({
+      ...result,
+      localSymbol: backendSymbols[index]?.localSymbol ?? result.requestedSymbol,
+    }));
+
+    setCachedQuotes(cacheKey, mappedResults);
+    return mappedResults;
+  })();
+
+  pendingMarketQuotesRequests.set(cacheKey, request);
+
+  try {
+    return await request;
+  } finally {
+    pendingMarketQuotesRequests.delete(cacheKey);
+  }
 };
 
 export const getLastCandleMarketFromBackend = async ({ limit = 300, source = "twelvedata" } = {}) => {

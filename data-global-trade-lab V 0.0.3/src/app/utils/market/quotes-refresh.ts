@@ -4,7 +4,6 @@ import { upsertLastCandleMarketBatch } from "@/app/utils/market/last-candle-mark
 import {
     acquireMarketQuotesRefreshLock,
     markMarketQuotesRefreshComplete,
-    releaseMarketQuotesRefreshLock,
 } from "@/app/utils/market/refresh-control";
 import { normalizeMarketSymbols, parseTrackedSymbols } from "@/app/utils/market/symbols";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
@@ -80,36 +79,10 @@ const isSuccessfulQuote = (quote: RefreshableQuote) => {
     return Number.isFinite(price) && (price as number) > 0;
 };
 
-const getMissingSnapshotSymbols = async (symbols: string[]) => {
-    if (!Array.isArray(symbols) || symbols.length === 0) {
-        return [];
-    }
-
-    const { data, error } = await supabaseAdmin
-        .from("last_candle_market")
-        .select("symbol")
-        .eq("source", SNAPSHOT_SOURCE)
-        .in("symbol", symbols);
-
-    if (error) {
-        return symbols;
-    }
-
-    const existingSymbols = new Set(
-        (data || [])
-            .map((row) => String((row as { symbol?: string }).symbol || "").trim().toUpperCase())
-            .filter(Boolean)
-    );
-
-    return symbols.filter((symbol) => !existingSymbols.has(symbol));
-};
-
 export async function refreshTrackedQuotesIfDue({
     symbols,
-    force = false,
 }: {
     symbols?: string[];
-    force?: boolean;
 } = {}): Promise<MarketQuotesRefreshResult> {
     const resolvedSymbols = Array.isArray(symbols) && symbols.length > 0
         ? normalizeMarketSymbols(symbols)
@@ -133,24 +106,29 @@ export async function refreshTrackedQuotesIfDue({
     }
 
     const minIntervalMs = resolveRefreshIntervalMs();
-    let lockAcquired = true;
-    let lockBypassed = false;
+    let lockAcquired = false;
 
-    if (!force) {
-        const missingSnapshotSymbols = await getMissingSnapshotSymbols(resolvedSymbols);
-        try {
-            lockAcquired = await acquireMarketQuotesRefreshLock({
-                minIntervalMs,
-            });
-        } catch {
-            lockAcquired = true;
-            lockBypassed = true;
-        }
-
-        if (!lockAcquired && missingSnapshotSymbols.length > 0) {
-            lockAcquired = true;
-            lockBypassed = true;
-        }
+    try {
+        lockAcquired = await acquireMarketQuotesRefreshLock({
+            minIntervalMs,
+            lockWindowMs: minIntervalMs,
+        });
+    } catch (error) {
+        return {
+            ok: false,
+            skipped: true,
+            reason: "refresh_lock_unavailable",
+            refreshedAt: new Date().toISOString(),
+            symbols: resolvedSymbols,
+            lockBypassed: false,
+            persistedSnapshot: false,
+            persistedHistory: false,
+            snapshotPersistError:
+                error instanceof Error ? error.message : "refresh_lock_unavailable",
+            historyPersistError: null,
+            successfulQuotesCount: 0,
+            results: [],
+        };
     }
 
     if (!lockAcquired) {
@@ -160,7 +138,7 @@ export async function refreshTrackedQuotesIfDue({
             reason: "refresh_window_locked_or_not_due",
             refreshedAt: new Date().toISOString(),
             symbols: resolvedSymbols,
-            lockBypassed,
+            lockBypassed: false,
             persistedSnapshot: false,
             persistedHistory: false,
             snapshotPersistError: null,
@@ -193,9 +171,7 @@ export async function refreshTrackedQuotesIfDue({
 
     try {
         await upsertLastCandleMarketBatch(successfulQuotes);
-        if (!lockBypassed && !force) {
-            await markMarketQuotesRefreshComplete();
-        }
+        await markMarketQuotesRefreshComplete();
     } catch (error) {
         persistedSnapshot = false;
         snapshotPersistError =
@@ -203,13 +179,8 @@ export async function refreshTrackedQuotesIfDue({
                 ? error.message
                 : "last_candle_market_upsert_failed";
 
-        if (!lockBypassed && !force) {
-            try {
-                await releaseMarketQuotesRefreshLock();
-            } catch {
-                // Ignore unlock error and preserve original snapshot error.
-            }
-        }
+        // Keep the lock until its TTL expires. Twelve Data was already called,
+        // so an immediate retry would only spend the same credits again.
     }
 
     try {
@@ -251,7 +222,7 @@ export async function refreshTrackedQuotesIfDue({
         reason: null,
         refreshedAt: new Date().toISOString(),
         symbols: resolvedSymbols,
-        lockBypassed,
+        lockBypassed: false,
         persistedSnapshot,
         persistedHistory,
         snapshotPersistError,

@@ -15,6 +15,65 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test('quote reads are deduplicated and reused across frontend reloads for 108 seconds', async () => {
+  const storedValues = new Map();
+  const sessionStorage = {
+    getItem: (key) => storedValues.get(key) ?? null,
+    setItem: (key, value) => storedValues.set(key, value),
+    removeItem: (key) => storedValues.delete(key),
+  };
+  let fetchCount = 0;
+  const fetchGate = deferred();
+  const responsePayload = {
+    ok: true,
+    results: [
+      { requestedSymbol: 'BTC/USD', ok: true, data: { close: '100' } },
+      { requestedSymbol: 'ETH/USD', ok: true, data: { close: '50' } },
+    ],
+  };
+  const createLoader = () => createModuleLoader({
+    '@/lib/env': { getMarketBackendUrl: (path) => `https://backend.test${path}` },
+    '@/lib/market-timeframes': {
+      DEFAULT_TIMEFRAME: '1m',
+      HISTORY_CACHE_TTL_MS: {},
+      toBackendTimeframe: (timeframe) => timeframe,
+    },
+    '@/lib/auth-api': { getAccessToken: async () => null },
+    '@/lib/market-assets': {
+      ENABLED_MARKET_ASSETS: [
+        { id: 'BTCUSD', backendSymbol: 'BTC/USD' },
+        { id: 'ETHUSD', backendSymbol: 'ETH/USD' },
+      ],
+    },
+  }, {
+    window: { sessionStorage },
+    fetch: async () => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        await fetchGate.promise;
+      }
+      return { ok: true, json: async () => responsePayload };
+    },
+  });
+
+  const firstModule = createLoader()('src/lib/backend-market.js');
+  const firstRequest = firstModule.getQuotesFromBackend(['BTCUSD', 'ETHUSD']);
+  const duplicateRequest = firstModule.getQuotesFromBackend(['BTCUSD', 'ETHUSD']);
+  assert.equal(fetchCount, 1);
+  fetchGate.resolve();
+  await Promise.all([firstRequest, duplicateRequest]);
+
+  await firstModule.getQuotesFromBackend(['BTCUSD', 'ETHUSD']);
+  assert.equal(fetchCount, 1);
+
+  const reloadedModule = createLoader()('src/lib/backend-market.js');
+  await reloadedModule.getQuotesFromBackend(['BTCUSD', 'ETHUSD']);
+  assert.equal(fetchCount, 1);
+
+  await reloadedModule.getQuotesFromBackend(['BTCUSD', 'ETHUSD'], { force: true });
+  assert.equal(fetchCount, 2);
+});
+
 test('older history stays disabled until the initial chart history owns a valid cursor', async () => {
   const initialRequest = deferred();
   const calls = [];
@@ -172,6 +231,7 @@ test('chart data never renders class-level hourly candles as an initial fallback
 
 test('class market context performs one initial quote request and no history request', async () => {
   const intervals = [];
+  const intervalDelays = [];
   const calls = [];
   const loader = createModuleLoader({
     'react-router-dom': {
@@ -181,8 +241,9 @@ test('class market context performs one initial quote request and no history req
       useTranslation: () => ({ t: (key) => key }),
     },
     '@/lib/backend-market': {
-      getQuotesFromBackend: async (symbols) => {
-        calls.push(symbols);
+      MARKET_QUOTES_REFRESH_INTERVAL_MS: 108_000,
+      getQuotesFromBackend: async (symbols, options) => {
+        calls.push({ symbols, options });
         return [{
           ok: true,
           localSymbol: 'BTCUSD',
@@ -206,8 +267,9 @@ test('class market context performs one initial quote request and no history req
     },
   }, {
     window: {
-      setInterval: (handler) => {
+      setInterval: (handler, delay) => {
         intervals.push(handler);
+        intervalDelays.push(delay);
         return intervals.length;
       },
       clearInterval: () => {},
@@ -240,6 +302,8 @@ test('class market context performs one initial quote request and no history req
 
     assert.equal(calls.length, 1);
     assert.equal(intervals.length, 1);
+    assert.equal(intervalDelays[0], 108_000);
+    assert.equal(calls[0].options.force, false);
     assert.equal(state.quoteData.BTCUSD.close, '100');
     assert.equal(Object.hasOwn(state, 'marketData'), false);
 
@@ -248,6 +312,7 @@ test('class market context performs one initial quote request and no history req
       await Promise.resolve();
     });
     assert.equal(calls.length, 2);
+    assert.equal(calls[1].options.force, true);
   } finally {
     await act(async () => renderer?.unmount());
   }

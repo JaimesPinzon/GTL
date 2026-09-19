@@ -45,31 +45,48 @@ type TwelveDataTimeSeriesResponse = {
     status?: string;
 };
 
-export async function getTwelveDataQuote(symbol: string) {
-    const url = new URL("/quote", TWELVEDATA_BASE_URL);
-    url.searchParams.set("symbol", symbol);
-    url.searchParams.set("apikey", serverEnv.TWELVEDATA_API_KEY);
+type TimeSeriesCacheEntry = {
+    data: TwelveDataTimeSeriesResponse;
+    fetchedAt: number;
+};
 
-    const response = await fetch(url.toString(), {
-        method: "GET",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        cache: "no-store",
-        signal: AbortSignal.timeout(10000),
-    });
+const DEFAULT_TIME_SERIES_TTL_MS = 108000;
+const MAX_TIME_SERIES_CACHE_ENTRIES = 100;
 
-    if (!response.ok) {
-        throw new Error(`TwelveData request failed with status ${response.status}`);
+function getTimeSeriesStores() {
+    const globalStores = globalThis as typeof globalThis & {
+        __gtlTwelveDataTimeSeriesCache__?: Map<string, TimeSeriesCacheEntry>;
+        __gtlTwelveDataTimeSeriesPending__?: Map<string, Promise<TwelveDataTimeSeriesResponse>>;
+    };
+
+    globalStores.__gtlTwelveDataTimeSeriesCache__ ??= new Map();
+    globalStores.__gtlTwelveDataTimeSeriesPending__ ??= new Map();
+
+    return {
+        cache: globalStores.__gtlTwelveDataTimeSeriesCache__,
+        pending: globalStores.__gtlTwelveDataTimeSeriesPending__,
+    };
+}
+
+function resolveTimeSeriesTtlMs() {
+    const configuredTtl = Number.parseInt(
+        String(process.env.TWELVEDATA_TIME_SERIES_TTL_MS ?? ""),
+        10
+    );
+
+    return Number.isFinite(configuredTtl) && configuredTtl > 0
+        ? configuredTtl
+        : DEFAULT_TIME_SERIES_TTL_MS;
+}
+
+function pruneTimeSeriesCache(cache: Map<string, TimeSeriesCacheEntry>) {
+    while (cache.size > MAX_TIME_SERIES_CACHE_ENTRIES) {
+        const oldestKey = cache.keys().next().value;
+        if (!oldestKey) {
+            break;
+        }
+        cache.delete(oldestKey);
     }
-
-    const data = (await response.json()) as TwelveDataQuoteResponse;
-
-    if (data.status === "error" || data.code || data.message) {
-        throw new Error(data.message ?? "TwelveData returned an error");
-    }
-
-    return data;
 }
 
 export async function getTwelveDataQuotes(symbols: string[]) {
@@ -167,6 +184,51 @@ export async function getTwelveDataTimeSeries(
     symbol: string,
     interval = "1min",
     outputsize = 300
+) {
+    const normalizedSymbol = symbol.trim().toUpperCase();
+    const normalizedInterval = interval.trim().toLowerCase();
+    const normalizedOutputsize = Math.max(1, Math.trunc(outputsize));
+    const cacheKey = `${normalizedSymbol}::${normalizedInterval}::${normalizedOutputsize}`;
+    const { cache, pending } = getTimeSeriesStores();
+    const cachedEntry = cache.get(cacheKey);
+
+    if (cachedEntry && Date.now() - cachedEntry.fetchedAt <= resolveTimeSeriesTtlMs()) {
+        cache.delete(cacheKey);
+        cache.set(cacheKey, cachedEntry);
+        return cachedEntry.data;
+    }
+
+    if (cachedEntry) {
+        cache.delete(cacheKey);
+    }
+
+    const pendingRequest = pending.get(cacheKey);
+    if (pendingRequest) {
+        return pendingRequest;
+    }
+
+    const request = fetchTwelveDataTimeSeries(
+        normalizedSymbol,
+        normalizedInterval,
+        normalizedOutputsize
+    )
+        .then((data) => {
+            cache.set(cacheKey, { data, fetchedAt: Date.now() });
+            pruneTimeSeriesCache(cache);
+            return data;
+        })
+        .finally(() => {
+            pending.delete(cacheKey);
+        });
+
+    pending.set(cacheKey, request);
+    return request;
+}
+
+async function fetchTwelveDataTimeSeries(
+    symbol: string,
+    interval: string,
+    outputsize: number
 ) {
     const url = new URL("/time_series", TWELVEDATA_BASE_URL);
     url.searchParams.set("symbol", symbol);

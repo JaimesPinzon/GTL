@@ -117,7 +117,10 @@ export async function GET(request: Request) {
             }
         }
 
-        if (shouldUseLiveTimeSeries(config.providerInterval)) {
+        if (
+            shouldUseLiveTimeSeries(config.providerInterval) &&
+            !hasFreshStoredHistory
+        ) {
             try {
                 const liveSeries = await getTwelveDataTimeSeries(
                     symbol,

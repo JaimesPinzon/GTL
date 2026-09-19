@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getTwelveDataQuote, getTwelveDataTimeSeries } from "@/app/utils/twelvedata/server";
+import { getTwelveDataTimeSeries } from "@/app/utils/twelvedata/server";
 import { saveQuoteHistory } from "@/app/utils/twelvedata/history";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
 import { getCachedPayload, getOrCreateGlobalCache, setCachedPayload } from "@/app/utils/market/cache";
@@ -232,7 +232,10 @@ export async function GET(request: Request) {
 
                     let liveSeriesCandles: OhlcCandle[] = [];
 
-                    if (shouldUseLiveTimeSeries(config.providerInterval)) {
+                    if (
+                        shouldUseLiveTimeSeries(config.providerInterval) &&
+                        !hasFreshStoredHistory
+                    ) {
                         try {
                             const liveSeries = await getTwelveDataTimeSeries(
                                 symbol,
@@ -288,25 +291,17 @@ export async function GET(request: Request) {
                     if (outputCandles.length > 0) {
                         const latestCandle = outputCandles[outputCandles.length - 1];
 
+                        const closeAsString = latestCandle.close.toString();
                         try {
-                            const quote = await getTwelveDataQuote(symbol);
                             await saveQuoteHistory({
                                 requestedSymbol: symbol,
-                                ...quote,
+                                symbol,
+                                currency: latestCandle.currency,
+                                close: closeAsString,
+                                timestamp: latestCandle.time,
                             });
                         } catch {
-                            const closeAsString = latestCandle.close.toString();
-                            try {
-                                await saveQuoteHistory({
-                                    requestedSymbol: symbol,
-                                    symbol,
-                                    currency: latestCandle.currency,
-                                    close: closeAsString,
-                                    timestamp: latestCandle.time,
-                                });
-                            } catch {
-                                // Ignore persistence problems and still return the live candles.
-                            }
+                            // Ignore persistence problems and still return the live candles.
                         }
                     }
 
