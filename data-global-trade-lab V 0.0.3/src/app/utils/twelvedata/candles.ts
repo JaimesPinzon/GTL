@@ -14,6 +14,9 @@ type MarketCandlePayload = {
     low: number;
     close: number;
     volume?: number | null;
+    provider?: string;
+    sourceRange?: string;
+    isFinal?: boolean;
 };
 
 export async function saveMarketCandles(candles: MarketCandlePayload[]) {
@@ -21,6 +24,7 @@ export async function saveMarketCandles(candles: MarketCandlePayload[]) {
         return;
     }
 
+    const fetchedAt = new Date().toISOString();
     const mappedRows = candles.map((candle) => ({
         exchange_id: candle.exchange ?? "UNKNOWN",
         instrument_id: candle.requestedSymbol,
@@ -35,6 +39,10 @@ export async function saveMarketCandles(candles: MarketCandlePayload[]) {
         low_price: candle.low,
         close_price: candle.close,
         volume: candle.volume ?? null,
+        provider: candle.provider ?? "twelvedata",
+        source_range: candle.sourceRange ?? "live",
+        is_final: candle.isFinal ?? true,
+        fetched_at: fetchedAt,
     }));
 
     const { error } = await supabaseAdmin.from("candles").upsert(

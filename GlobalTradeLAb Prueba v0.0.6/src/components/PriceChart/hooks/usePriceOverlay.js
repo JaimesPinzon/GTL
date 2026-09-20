@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 const PRICE_MARKER_BUTTON_HALF_HEIGHT = 12;
-const PRICE_ACTION_MENU_RIGHT_OFFSET = 44;
+const PRICE_ACTION_MENU_RIGHT_OFFSET = 96;
 const PRICE_OVERLAY_CLOSE_DELAY_MS = 140;
 
 const initialOverlayState = {

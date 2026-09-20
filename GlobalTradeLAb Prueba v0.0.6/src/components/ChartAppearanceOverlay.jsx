@@ -27,6 +27,19 @@ const ColorChip = ({ value, selected, onClick }) => (
   </button>
 );
 
+const ColorTargetButton = ({ color, label, selected, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-medium transition ${
+      selected ? "border-primary/70 bg-primary/10 text-white" : "border-white/10 text-zinc-400 hover:border-white/20 hover:text-white"
+    }`}
+  >
+    <span className="h-7 w-7 shrink-0 rounded-lg border border-white/15" style={{ backgroundColor: color }} />
+    <span className="truncate">{label}</span>
+  </button>
+);
+
 const ToggleRow = ({ label, checked, onToggle, positiveColor, negativeColor, onPositiveColor, onNegativeColor }) => (
   <div className="flex items-center justify-between gap-4">
     <label className="flex items-center gap-3 text-lg text-zinc-200">
@@ -86,17 +99,23 @@ const ChartAppearanceOverlay = ({
 
       <div className="space-y-6 px-6 py-6">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
+          <ColorTargetButton
+            color={appearance.backgroundColor}
+            label={t("priceChart.appearance.background")}
+            selected={targetField === "backgroundColor"}
             onClick={() => onChange("paletteTarget", "backgroundColor")}
-            className="h-14 w-14 rounded-2xl border border-white/10"
-            style={{ backgroundColor: appearance.backgroundColor }}
           />
-          <button
-            type="button"
+          <ColorTargetButton
+            color={appearance.lineColor}
+            label={t("priceChart.appearance.line")}
+            selected={targetField === "lineColor"}
             onClick={() => onChange("paletteTarget", "lineColor")}
-            className="h-14 w-14 rounded-2xl border border-white/10"
-            style={{ backgroundColor: appearance.lineColor }}
+          />
+          <ColorTargetButton
+            color={appearance.indicatorDividerColor}
+            label={t("priceChart.appearance.indicatorDivider")}
+            selected={targetField === "indicatorDividerColor"}
+            onClick={() => onChange("paletteTarget", "indicatorDividerColor")}
           />
         </div>
 
@@ -112,6 +131,25 @@ const ChartAppearanceOverlay = ({
         </div>
 
         <div className="space-y-4 border-t border-white/10 pt-5">
+          <div className="flex items-center justify-between gap-5">
+            <div>
+              <p className="text-sm font-semibold text-zinc-200">{t("priceChart.appearance.dividerThickness")}</p>
+              <p className="mt-1 text-xs text-zinc-500">{t("priceChart.appearance.dividerThicknessHint")}</p>
+            </div>
+            <div className="flex min-w-48 items-center gap-3">
+              <input
+                type="range"
+                min="1"
+                max="4"
+                step="1"
+                value={appearance.indicatorDividerThickness ?? 1}
+                onChange={(event) => onChange("indicatorDividerThickness", Number(event.target.value))}
+                className="w-full accent-primary"
+              />
+              <span className="w-9 text-right text-sm tabular-nums text-zinc-300">{appearance.indicatorDividerThickness ?? 1}px</span>
+            </div>
+          </div>
+
           <ToggleRow
             label={t("priceChart.appearance.body")}
             checked={appearance.bodyEnabled}

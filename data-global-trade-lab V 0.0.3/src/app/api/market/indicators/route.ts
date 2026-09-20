@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { supabaseAdmin } from "@/app/utils/supabase/admin";
-import { buildCandlesFromStoredRows, aggregateCandlesByCount, type MarketCandleRow } from "@/app/utils/market/ohlc";
 import { buildEmaSeries, buildMacdSeries } from "@/app/utils/market/indicators";
-import { getConfigForTimeframe } from "@/app/utils/market/timeframes";
+import { readBaseCandlesForTimeframe } from "@/app/utils/yahoo/base-candles-read";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -29,7 +27,6 @@ export async function GET(request: Request) {
     const macdShortPeriod = Number.parseInt(searchParams.get("macdShortPeriod") ?? "12", 10);
     const macdLongPeriod = Number.parseInt(searchParams.get("macdLongPeriod") ?? "26", 10);
     const macdSignalPeriod = Number.parseInt(searchParams.get("macdSignalPeriod") ?? "9", 10);
-    const config = getConfigForTimeframe(timeframe);
 
     if (!symbol) {
         return NextResponse.json(
@@ -39,24 +36,12 @@ export async function GET(request: Request) {
     }
 
     try {
-        const { data, error } = await supabaseAdmin
-            .from("candles")
-            .select(
-                "requested_symbol:instrument_id,provider_symbol,interval:timeframe,candle_time:open_time,exchange,currency,open_price,high_price,low_price,close_price,volume"
-            )
-            .eq("instrument_id", symbol)
-            .eq("timeframe", config.providerInterval)
-            .order("open_time", { ascending: false })
-            .limit(Math.max(limit, 1200));
-
-        if (error) {
-            throw error;
-        }
-
-        const candles = aggregateCandlesByCount(
-            buildCandlesFromStoredRows((data ?? []) as MarketCandleRow[]),
-            config.aggregateSize
-        ).slice(-limit);
+        const stored = await readBaseCandlesForTimeframe({
+            symbol,
+            timeframe,
+            limit: Math.max(limit, 1200),
+        });
+        const candles = stored.data.slice(-limit);
 
         const candleTimes = candles.map((candle) => candle.time);
         const closes = candles.map((candle) => candle.close);

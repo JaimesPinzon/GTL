@@ -16,6 +16,7 @@ export function useMacdChart({
   isFullScreen,
   macdContainerRef,
   paneStudy,
+  seriesRef,
   showMACD,
 }) {
   const macdChartRef = useRef(null);
@@ -23,6 +24,17 @@ export function useMacdChart({
   const syncRangeStateRef = useRef({ isSyncingMainToMacd: false, isSyncingMacdToMain: false });
   const unsubscribeMainToMacdRef = useRef(null);
   const unsubscribeMacdToMainRef = useRef(null);
+  const unsubscribeMainCrosshairRef = useRef(null);
+  const unsubscribeMacdCrosshairRef = useRef(null);
+  const paneValuesByPlotRef = useRef(new Map());
+  const mainValuesByTimeRef = useRef(new Map());
+  const crosshairSyncStateRef = useRef({ mainToMacd: false, macdToMain: false });
+
+  useEffect(() => {
+    mainValuesByTimeRef.current = new Map(
+      formattedSeriesData.map((entry) => [String(entry.time), entry.close ?? entry.value])
+    );
+  }, [formattedSeriesData]);
 
   const createSeriesForPlot = useCallback((plot) => {
     if (!macdChartRef.current) {
@@ -120,6 +132,74 @@ export function useMacdChart({
           macdChartRef.current?.timeScale().unsubscribeVisibleLogicalRangeChange(handleMacdToMainRangeChange);
         } catch {}
       };
+
+      const handleMainCrosshairMove = (param) => {
+        if (crosshairSyncStateRef.current.macdToMain || !macdChartRef.current) {
+          return;
+        }
+
+        if (param?.time == null) {
+          crosshairSyncStateRef.current.mainToMacd = true;
+          try {
+            macdChartRef.current.clearCrosshairPosition?.();
+          } finally {
+            crosshairSyncStateRef.current.mainToMacd = false;
+          }
+          return;
+        }
+
+        for (const [plotId, paneSeries] of paneSeriesRefs.current.entries()) {
+          const value = paneValuesByPlotRef.current.get(plotId)?.get(String(param.time));
+          if (!Number.isFinite(value) || !paneSeries) continue;
+
+          crosshairSyncStateRef.current.mainToMacd = true;
+          try {
+            macdChartRef.current.setCrosshairPosition(value, param.time, paneSeries);
+          } finally {
+            crosshairSyncStateRef.current.mainToMacd = false;
+          }
+          break;
+        }
+      };
+
+      const handleMacdCrosshairMove = (param) => {
+        if (crosshairSyncStateRef.current.mainToMacd || !chartRef.current || !seriesRef.current) {
+          return;
+        }
+
+        if (param?.time == null) {
+          crosshairSyncStateRef.current.macdToMain = true;
+          try {
+            chartRef.current.clearCrosshairPosition?.();
+          } finally {
+            crosshairSyncStateRef.current.macdToMain = false;
+          }
+          return;
+        }
+
+        const value = mainValuesByTimeRef.current.get(String(param.time));
+        if (!Number.isFinite(value)) return;
+
+        crosshairSyncStateRef.current.macdToMain = true;
+        try {
+          chartRef.current.setCrosshairPosition(value, param.time, seriesRef.current);
+        } finally {
+          crosshairSyncStateRef.current.macdToMain = false;
+        }
+      };
+
+      chartRef.current.subscribeCrosshairMove(handleMainCrosshairMove);
+      macdChartRef.current.subscribeCrosshairMove(handleMacdCrosshairMove);
+      unsubscribeMainCrosshairRef.current = () => {
+        try {
+          chartRef.current?.unsubscribeCrosshairMove(handleMainCrosshairMove);
+        } catch {}
+      };
+      unsubscribeMacdCrosshairRef.current = () => {
+        try {
+          macdChartRef.current?.unsubscribeCrosshairMove(handleMacdCrosshairMove);
+        } catch {}
+      };
     }
 
     syncMacdVisibility();
@@ -127,8 +207,12 @@ export function useMacdChart({
     return () => {
       unsubscribeMainToMacdRef.current?.();
       unsubscribeMacdToMainRef.current?.();
+      unsubscribeMainCrosshairRef.current?.();
+      unsubscribeMacdCrosshairRef.current?.();
       unsubscribeMainToMacdRef.current = null;
       unsubscribeMacdToMainRef.current = null;
+      unsubscribeMainCrosshairRef.current = null;
+      unsubscribeMacdCrosshairRef.current = null;
 
       paneSeriesRefs.current.forEach((series) => {
         if (macdChartRef.current && series) {
@@ -144,6 +228,7 @@ export function useMacdChart({
       }
 
       paneSeriesRefs.current = new Map();
+      paneValuesByPlotRef.current = new Map();
       macdChartRef.current = null;
     };
   }, [chartRef, macdContainerRef, showMACD, syncMacdVisibility]);
@@ -187,7 +272,16 @@ export function useMacdChart({
 
       const plotSeries = paneSeriesRefs.current.get(plot.id);
       plotSeries?.applyOptions(plot.options ?? {});
-      plotSeries?.setData(alignPlotToTimeline(plot.data, formattedSeriesData));
+      const alignedData = alignPlotToTimeline(plot.data, formattedSeriesData);
+      paneValuesByPlotRef.current.set(
+        plot.id,
+        new Map(
+          alignedData
+            .filter((entry) => Number.isFinite(entry.value))
+            .map((entry) => [String(entry.time), entry.value])
+        )
+      );
+      plotSeries?.setData(alignedData);
     });
 
     paneSeriesRefs.current.forEach((series, plotId) => {
@@ -200,6 +294,7 @@ export function useMacdChart({
       } catch {}
 
       paneSeriesRefs.current.delete(plotId);
+      paneValuesByPlotRef.current.delete(plotId);
     });
 
     const mainVisibleRange = chartRef.current?.timeScale?.().getVisibleLogicalRange?.();

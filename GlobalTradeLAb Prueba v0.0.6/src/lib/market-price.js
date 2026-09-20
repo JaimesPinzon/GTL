@@ -53,6 +53,8 @@ export function mergeMarketSnapshot(candles, snapshot, timeframe, timezone) {
       ...last, high: Math.max(last.high, price), low: Math.min(last.low, price), close: price, value: price,
     }];
   }
-  // A quote is one observation, not a full OHLC bar from a different interval.
-  return [...candles, { time, open: price, high: price, low: price, close: price, value: price, currency: snapshot.currency }];
+  // A quote is one observation, not an OHLC candle. Only a provider time-series
+  // response may append a new bar; otherwise a temporary flat candle would alter
+  // the scale/indicators and disappear after a reload.
+  return candles;
 }

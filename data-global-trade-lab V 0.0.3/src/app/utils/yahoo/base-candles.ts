@@ -19,6 +19,7 @@ export type YahooBaseFetchOptions = {
     period1?: number;
     period2?: number;
     chunkDays?: number;
+    throwOnPersistenceError?: boolean;
 };
 
 const COHERENT_TAIL_MAX_GAP_MS: Record<string, number> = {
@@ -213,7 +214,7 @@ export async function fetchAndStoreYahooBaseCandles(
         throw new Error(`Unsupported Yahoo base timeframe: ${baseTimeframe}`);
     }
 
-    const { period1, period2, chunkDays } = options;
+    const { period1, period2, chunkDays, throwOnPersistenceError = true } = options;
 
     const yahooData =
         baseTimeframe === "1m" && period1 != null && period2 != null
@@ -251,8 +252,15 @@ export async function fetchAndStoreYahooBaseCandles(
         };
     }
 
-    const persistence = await saveYahooCandlesToBaseTable(
-        candles.map((candle) => ({
+    let persistence = {
+        insertedOrUpdated: 0,
+        rejected: 0,
+        rejectedReasons: {} as Record<string, number>,
+        persistenceError: null as string | null,
+    };
+
+    try {
+        const result = await saveYahooCandlesToBaseTable(candles.map((candle) => ({
             requestedSymbol: symbol,
             providerSymbol: candle.providerSymbol ?? symbol,
             interval: baseTimeframe,
@@ -270,8 +278,20 @@ export async function fetchAndStoreYahooBaseCandles(
                     : config.range,
             provider: "yahoo_finance",
             isFinal: true,
-        }))
-    );
+        })));
+        persistence = { ...result, persistenceError: null };
+    } catch (error) {
+        if (throwOnPersistenceError) {
+            throw error;
+        }
+
+        persistence.persistenceError = error instanceof Error ? error.message : String(error);
+        console.error("Yahoo OHLC persistence error", {
+            symbol,
+            baseTimeframe,
+            error: persistence.persistenceError,
+        });
+    }
 
     return {
         candles,

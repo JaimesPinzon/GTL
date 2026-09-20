@@ -53,6 +53,19 @@ test('a newer live quote updates only its time bucket and preserves earlier cand
   assert.equal(rendered.at(-1).close, 78290);
 });
 
+test('an isolated future quote never creates a provisional OHLC candle', () => {
+  const candles = aggregateDataForTimeframe(history, '1m');
+  const snapshot = resolveMarketSnapshot({
+    candles: history,
+    quote: { close: '81402.15', timestamp: '2026-09-15T08:01:25Z' },
+  });
+  const rendered = mergeMarketSnapshot(candles, snapshot, '1m');
+
+  assert.equal(rendered, candles);
+  assert.equal(rendered.at(-1).time, candles.at(-1).time);
+  assert.equal(rendered.at(-1).close, candles.at(-1).close);
+});
+
 test('24-hour change uses a reference from history and the current price', () => {
   const snapshot = resolveMarketSnapshot({ quote, candles: [
     { time: '2026-09-13T23:45:00Z', close: 80000 }, ...history,

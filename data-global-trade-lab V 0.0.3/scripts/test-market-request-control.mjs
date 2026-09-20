@@ -32,15 +32,18 @@ test("time series requests share an in-flight request and a 108-second cache", (
     const twelveDataServer = readSource("src/app/utils/twelvedata/server.ts");
     const historyRoute = readSource("src/app/api/market/history/route.ts");
     const ohlcRoute = readSource("src/app/api/market/ohlc/route.ts");
+    const ohlcService = readSource("src/app/utils/market/ohlc.ts");
+    const refreshService = readSource("src/app/utils/market/quotes-refresh.ts");
 
     assert.match(twelveDataServer, /DEFAULT_TIME_SERIES_TTL_MS\s*=\s*108000/);
     assert.match(twelveDataServer, /pending\.get\(cacheKey\)/);
     assert.match(twelveDataServer, /pending\.set\(cacheKey, request\)/);
     assert.match(twelveDataServer, /cache\.set\(cacheKey, \{ data, fetchedAt: Date\.now\(\) \}\)/);
-    for (const source of [historyRoute, ohlcRoute]) {
-        assert.match(
-            source,
-            /shouldUseLiveTimeSeries\(config\.providerInterval\)\s*&&\s*!hasFreshStoredHistory/
-        );
-    }
+    assert.match(historyRoute, /shouldUseLiveTimeSeries\(config\.providerInterval\)\s*&&\s*!hasFreshStoredHistory/);
+    assert.match(ohlcRoute, /readBaseCandlesForTimeframe/);
+    assert.match(ohlcRoute, /after\(async \(\) =>/);
+    assert.match(ohlcService, /fetchAndStoreTwelveDataCandles/);
+    assert.match(ohlcService, /provider:\s*"twelvedata"/);
+    assert.match(refreshService, /fetchAndStoreTwelveDataCandles/);
+    assert.match(refreshService, /persistedCandles/);
 });

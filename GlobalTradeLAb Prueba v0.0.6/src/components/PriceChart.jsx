@@ -17,6 +17,11 @@ import { useDrawingTools } from "./PriceChart/hooks/useDrawingTools";
 import { usePriceOverlay } from "./PriceChart/hooks/usePriceOverlay";
 import { useMainChart } from "./PriceChart/hooks/useMainChart";
 import { useMacdChart } from "./PriceChart/hooks/useMacdChart";
+import {
+  MAX_INDICATOR_PANE_HEIGHT,
+  MIN_INDICATOR_PANE_HEIGHT,
+  useResizableIndicatorPane,
+} from "./PriceChart/hooks/useResizableIndicatorPane";
 import { useTranslation } from "react-i18next";
 import DrawingLayer from "./PriceChart/drawings/DrawingLayer";
 import { getDrawingLabelKey } from "./PriceChart/drawings/drawingRegistry";
@@ -67,6 +72,7 @@ const PriceChart = ({
   const [searchParams] = useSearchParams();
   const chartContainerRef = useRef(null);
   const macdChartContainerRef = useRef(null);
+  const chartPanelsContainerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
   const renderedDataRef = useRef([]);
@@ -101,6 +107,12 @@ const PriceChart = ({
   const currentUserId = user?.id || user?.user_id || null;
   const canManageEducationalDrawings = user?.role === "teacher" || ["teacher", "monitor"].includes(activeClass?.membershipRole);
   const focusedNewsId = searchParams.get("news");
+  const indicatorPane = useResizableIndicatorPane({
+    containerRef: chartPanelsContainerRef,
+    storageKey: `gtl:indicator-pane-height:v1:${cacheScopeKey}`,
+  });
+  const indicatorDividerColor = chartAppearance?.indicatorDividerColor ?? "#475569";
+  const indicatorDividerThickness = Math.min(4, Math.max(1, Number(chartAppearance?.indicatorDividerThickness) || 1));
 
   useEffect(() => {
     if (!isIndicatorMenuOpen) return undefined;
@@ -291,6 +303,7 @@ const PriceChart = ({
     isFullScreen,
     macdContainerRef: macdChartContainerRef,
     paneStudy: paneStudies[0] ?? null,
+    seriesRef,
     showMACD,
   });
 
@@ -351,7 +364,7 @@ const PriceChart = ({
         chartAppearance={chartAppearance}
       />
 
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div ref={chartPanelsContainerRef} className="relative flex min-h-0 flex-1 flex-col">
         <ChartToolSidebar
           activeTool={activeTool}
           keepToolActive={keepToolActive}
@@ -523,7 +536,7 @@ const PriceChart = ({
               />
               <div
                 ref={overlay.priceTriggerRef}
-                className="pointer-events-auto absolute right-3 flex items-center gap-2 cursor-default"
+                className="pointer-events-auto absolute right-[88px] flex items-center cursor-default"
                 style={{ top: Math.max(8, overlay.displayPriceMarker.y - 14) }}
                 onPointerEnter={overlay.handlePriceOverlayEnter}
                 onPointerLeave={overlay.handlePriceOverlayLeave}
@@ -542,9 +555,6 @@ const PriceChart = ({
                 >
                   <BellPlus className="h-3.5 w-3.5" />
                 </button>
-                <div className="pointer-events-none app-chrome-panel rounded-l-md border border-border/80 px-2 py-1 text-[12px] font-semibold text-foreground shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-                  {overlay.displayPriceMarker.price.toFixed(currency === "USD" ? 2 : 4)}
-                </div>
               </div>
 
               {overlay.isPriceMenuOpen ? (
@@ -596,7 +606,45 @@ const PriceChart = ({
         </div>
       </div>
 
-        {showMACD ? <div className="macd-chart-container mt-1 h-[120px] shrink-0" ref={macdChartContainerRef} /> : null}
+        {showMACD ? (
+          <>
+            <div
+              role="separator"
+              tabIndex={0}
+              aria-label={t("priceChart.indicators.resizePane")}
+              aria-orientation="horizontal"
+              aria-valuemin={MIN_INDICATOR_PANE_HEIGHT}
+              aria-valuemax={MAX_INDICATOR_PANE_HEIGHT}
+              aria-valuenow={indicatorPane.height}
+              className={`group relative z-30 flex h-2.5 shrink-0 touch-none cursor-row-resize items-center justify-center outline-none transition-colors focus-visible:bg-primary/10 ${
+                indicatorPane.isResizing ? "bg-primary/10" : "hover:bg-primary/5"
+              }`}
+              onDoubleClick={indicatorPane.resetHeight}
+              onKeyDown={indicatorPane.handleKeyDown}
+              onPointerCancel={indicatorPane.handlePointerCancel}
+              onPointerDown={indicatorPane.handlePointerDown}
+              onPointerMove={indicatorPane.handlePointerMove}
+              onPointerUp={indicatorPane.handlePointerUp}
+              title={t("priceChart.indicators.resizePaneHint")}
+            >
+              <span
+                aria-hidden="true"
+                className="absolute inset-x-0 transition-opacity group-hover:opacity-100"
+                style={{ backgroundColor: indicatorDividerColor, height: indicatorDividerThickness }}
+              />
+              <span
+                aria-hidden="true"
+                className="relative h-1 w-10 rounded-full opacity-70 shadow-sm transition group-hover:w-14 group-hover:opacity-100 group-focus-visible:w-14 group-focus-visible:opacity-100"
+                style={{ backgroundColor: indicatorDividerColor }}
+              />
+            </div>
+            <div
+              className="macd-chart-container min-h-0 shrink-0"
+              ref={macdChartContainerRef}
+              style={{ height: indicatorPane.height }}
+            />
+          </>
+        ) : null}
       </div>
 
       <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>

@@ -72,7 +72,15 @@ type StoredBaseRow = {
     low_price: number | string;
     close_price: number | string;
     volume: number | string | null;
+    provider: string | null;
+    fetched_at: string | null;
 };
+
+function getProviderPriority(provider: string | null) {
+    if (provider === "twelvedata") return 2;
+    if (provider === "yahoo_finance") return 1;
+    return 0;
+}
 
 function buildSymbolCandidates(rawSymbol: string) {
     const symbol = rawSymbol.trim().toUpperCase();
@@ -125,11 +133,11 @@ async function readStoredRows({
     let query = supabaseAdmin
         .from(YAHOO_CANDLES_TABLE_NAME)
         .select(
-            "instrument_id,provider_symbol,timeframe,open_time,exchange,currency,open_price,high_price,low_price,close_price,volume"
+            "instrument_id,provider_symbol,timeframe,open_time,exchange,currency,open_price,high_price,low_price,close_price,volume,provider,fetched_at"
         )
         .eq("timeframe", baseInterval)
         .order("open_time", { ascending: false })
-        .limit(fetchLimit * Math.max(1, symbolCandidates.length));
+        .limit(fetchLimit * Math.max(1, symbolCandidates.length) * 3);
 
     query =
         symbolCandidates.length === 1
@@ -157,14 +165,39 @@ async function readStoredRows({
     }
 
     const symbolRank = new Map(symbolCandidates.map((candidate, index) => [candidate, index]));
-    const mergedRowsByTime = new Map<string, { rank: number; row: StoredBaseRow }>();
+    const mergedRowsByTime = new Map<string, {
+        symbolRank: number;
+        providerPriority: number;
+        fetchedAt: number;
+        row: StoredBaseRow;
+    }>();
 
     (data ?? []).forEach((row) => {
-        const rowRank = symbolRank.get(String(row.instrument_id).toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+        const rowSymbolRank = symbolRank.get(String(row.instrument_id).toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+        const rowProviderPriority = getProviderPriority(row.provider);
+        const rowFetchedAt = row.fetched_at ? new Date(row.fetched_at).getTime() : 0;
         const existing = mergedRowsByTime.get(row.open_time);
 
-        if (!existing || rowRank < existing.rank) {
-            mergedRowsByTime.set(row.open_time, { rank: rowRank, row });
+        if (
+            !existing ||
+            rowSymbolRank < existing.symbolRank ||
+            (
+                rowSymbolRank === existing.symbolRank &&
+                (
+                    rowProviderPriority > existing.providerPriority ||
+                    (
+                        rowProviderPriority === existing.providerPriority &&
+                        rowFetchedAt >= existing.fetchedAt
+                    )
+                )
+            )
+        ) {
+            mergedRowsByTime.set(row.open_time, {
+                symbolRank: rowSymbolRank,
+                providerPriority: rowProviderPriority,
+                fetchedAt: rowFetchedAt,
+                row,
+            });
         }
     });
 
@@ -187,6 +220,8 @@ async function readStoredRows({
         low_price: row.low_price,
         close_price: row.close_price,
         volume: row.volume,
+        provider: row.provider,
+        fetched_at: row.fetched_at,
     }));
 
     return rows as MarketCandleRow[];
@@ -245,4 +280,3 @@ export async function readBaseCandlesForTimeframe({
         data: candles,
     };
 }
-

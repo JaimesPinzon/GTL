@@ -1,16 +1,20 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import {
     aggregateCandlesByCount,
-    buildCandlesFromStoredRows,
-    buildCandlesFromTimeSeriesValues,
-    fetchAndStoreYahooCandles,
+    fetchAndStoreTwelveDataCandles,
     mergeStoredCandlesWithLiveCandles,
-    type MarketCandleRow,
 } from "@/app/utils/market/ohlc";
-import { supabaseAdmin } from "@/app/utils/supabase/admin";
-import { getTwelveDataTimeSeries } from "@/app/utils/twelvedata/server";
-import { getConfigForTimeframe, getProviderFreshnessMs } from "@/app/utils/market/timeframes";
+import { getProviderFreshnessMs, getYahooBaseConfig } from "@/app/utils/market/timeframes";
+import {
+    buildRecentMinuteFetchWindow,
+    fetchAndStoreYahooBaseCandles,
+} from "@/app/utils/yahoo/base-candles";
+import { readBaseCandlesForTimeframe } from "@/app/utils/yahoo/base-candles-read";
+import {
+    getLatestStoredYahooBaseCandle,
+    type YahooCandleBaseInterval,
+} from "@/app/utils/yahoo/candles-storage";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -18,44 +22,74 @@ const corsHeaders = {
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-function getTwelveDataInterval(providerInterval: string) {
-    switch (providerInterval) {
-        case "1m":
-            return "1min";
-        case "2m":
-            return "2min";
-        case "5m":
-            return "5min";
-        case "15m":
-            return "15min";
-        case "30m":
-            return "30min";
-        case "60m":
-            return "1h";
-        default:
-            return null;
-    }
+function isStoredSnapshotFresh(
+    latestStored: Awaited<ReturnType<typeof getLatestStoredYahooBaseCandle>>,
+    providerInterval: string
+) {
+    const fetchedAt = latestStored?.fetched_at
+        ? new Date(latestStored.fetched_at).getTime()
+        : Number.NaN;
+
+    return (
+        Number.isFinite(fetchedAt) &&
+        Date.now() - fetchedAt < getProviderFreshnessMs(providerInterval)
+    );
 }
 
-function shouldUseLiveTimeSeries(providerInterval: string) {
-    return ["1m", "2m", "5m", "15m", "30m", "60m"].includes(providerInterval);
-}
+async function refreshCanonicalCandles({
+    symbol,
+    baseInterval,
+    outputsize,
+}: {
+    symbol: string;
+    baseInterval: YahooCandleBaseInterval;
+    outputsize: number;
+}) {
+    const yahooConfig = getYahooBaseConfig(baseInterval);
+    const yahooOptions = {
+        ...(baseInterval === "1m" ? buildRecentMinuteFetchWindow() : {}),
+        throwOnPersistenceError: false,
+    };
+    const [yahooResult, twelveDataResult] = await Promise.allSettled([
+        fetchAndStoreYahooBaseCandles(symbol, baseInterval, yahooOptions),
+        fetchAndStoreTwelveDataCandles(symbol, baseInterval, outputsize, {
+            throwOnPersistenceError: false,
+        }),
+    ]);
+    const results = [yahooResult, twelveDataResult];
+    const failures = results
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
 
-function buildSymbolCandidates(rawSymbol: string) {
-    const normalizedSymbol = rawSymbol.trim().toUpperCase();
-    if (!normalizedSymbol) {
-        return [];
+    if (failures.length === results.length) {
+        throw new Error(`All OHLC providers failed for ${symbol} ${baseInterval}: ${failures.join(" | ")}`);
     }
 
-    return [...new Set([
-        normalizedSymbol,
-        normalizedSymbol.replace(/\//g, ""),
-    ])];
+    if (failures.length > 0) {
+        console.warn("partial OHLC refresh", {
+            symbol,
+            baseInterval,
+            providerInterval: yahooConfig?.providerInterval ?? baseInterval,
+            failures,
+        });
+    }
+
+    const yahooCandles = yahooResult.status === "fulfilled"
+        ? yahooResult.value.candles.map((candle) => ({
+            ...candle,
+            value: candle.close,
+            currency: candle.currency ?? "USD",
+            exchange: candle.exchange ?? null,
+        }))
+        : [];
+    const twelveDataCandles = twelveDataResult.status === "fulfilled" ? twelveDataResult.value : [];
+    return mergeStoredCandlesWithLiveCandles(yahooCandles, twelveDataCandles);
 }
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 export async function OPTIONS() {
     return new NextResponse(null, {
@@ -67,9 +101,9 @@ export async function OPTIONS() {
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const symbol = searchParams.get("symbol")?.trim() ?? "";
-    const timeframe = searchParams.get("timeframe")?.trim() ?? "1M";
-    const limit = Number.parseInt(searchParams.get("limit") ?? "300", 10);
-    const config = getConfigForTimeframe(timeframe);
+    const timeframe = searchParams.get("timeframe")?.trim() ?? "1m";
+    const parsedLimit = Number.parseInt(searchParams.get("limit") ?? "300", 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 5000)) : 300;
 
     if (!symbol) {
         return NextResponse.json(
@@ -79,72 +113,63 @@ export async function GET(request: Request) {
     }
 
     try {
-        const fetchLimit = Math.max(limit, 1200);
-        const symbolCandidates = buildSymbolCandidates(symbol);
-        const storedCandlesQuery = supabaseAdmin
-            .from("candles")
-            .select(
-                "requested_symbol:instrument_id,provider_symbol,interval:timeframe,candle_time:open_time,exchange,currency,open_price,high_price,low_price,close_price,volume"
-            )
-            .eq("timeframe", config.providerInterval)
-            .order("open_time", { ascending: false })
-            .limit(fetchLimit);
+        let stored = await readBaseCandlesForTimeframe({ symbol, timeframe, limit });
+        const baseInterval = stored.baseInterval as YahooCandleBaseInterval;
+        const yahooConfig = getYahooBaseConfig(baseInterval);
 
-        const { data, error } = symbolCandidates.length === 1
-            ? await storedCandlesQuery.eq("instrument_id", symbolCandidates[0])
-            : await storedCandlesQuery.in("instrument_id", symbolCandidates);
-
-        if (error) {
-            console.error("stored OHLC read unavailable; using live providers", error);
+        if (!yahooConfig) {
+            return NextResponse.json(
+                { ok: false, error: `Unsupported OHLC timeframe: ${timeframe}` },
+                { status: 400, headers: corsHeaders }
+            );
         }
 
-        let rawCandles = buildCandlesFromStoredRows((error ? [] : data ?? []) as MarketCandleRow[]);
-        const latestStoredCandle = (data ?? [])[0] as MarketCandleRow | undefined;
-        const hasFreshStoredHistory =
-            latestStoredCandle &&
-            Date.now() - new Date(latestStoredCandle.candle_time).getTime() <
-                getProviderFreshnessMs(config.providerInterval);
+        let latestStored: Awaited<ReturnType<typeof getLatestStoredYahooBaseCandle>> = null;
+        try {
+            latestStored = await getLatestStoredYahooBaseCandle(symbol, baseInterval);
+        } catch (error) {
+            console.error("OHLC freshness read error", {
+                symbol,
+                baseInterval,
+                error: error instanceof Error ? error.message : error,
+            });
+        }
+        const isFresh = isStoredSnapshotFresh(latestStored, yahooConfig.providerInterval);
+        let refreshMode: "fresh" | "background" | "blocking" = "fresh";
+        let responseSource: string = stored.source;
 
-        if (!hasFreshStoredHistory) {
-            try {
-                rawCandles = await fetchAndStoreYahooCandles(
-                    symbol,
-                    config.providerInterval,
-                    config.range
-                );
-            } catch (refreshError) {
-                console.error("fetchAndStoreYahooCandles refresh error", refreshError);
+        if (stored.data.length > 0 && !isFresh) {
+            refreshMode = "background";
+            after(async () => {
+                try {
+                    await refreshCanonicalCandles({
+                        symbol,
+                        baseInterval,
+                        outputsize: Math.min(500, Math.max(60, limit * stored.aggregateSize)),
+                    });
+                } catch (error) {
+                    console.error("background OHLC refresh error", {
+                        symbol,
+                        timeframe,
+                        error: error instanceof Error ? error.message : error,
+                    });
+                }
+            });
+        } else if (stored.data.length === 0) {
+            refreshMode = "blocking";
+            const liveCandles = await refreshCanonicalCandles({
+                symbol,
+                baseInterval,
+                outputsize: Math.min(500, Math.max(60, limit * stored.aggregateSize)),
+            });
+            stored = await readBaseCandlesForTimeframe({ symbol, timeframe, limit });
+            if (stored.data.length === 0 && liveCandles.length > 0) {
+                responseSource = "live_providers";
+                stored = {
+                    ...stored,
+                    data: aggregateCandlesByCount(liveCandles, stored.aggregateSize).slice(-limit),
+                };
             }
-        }
-
-        if (
-            shouldUseLiveTimeSeries(config.providerInterval) &&
-            !hasFreshStoredHistory
-        ) {
-            try {
-                const liveSeries = await getTwelveDataTimeSeries(
-                    symbol,
-                    getTwelveDataInterval(config.providerInterval) ?? "1min",
-                    Math.min(200, Math.max(60, limit * config.aggregateSize))
-                );
-
-                const liveCandles = buildCandlesFromTimeSeriesValues(
-                    liveSeries.values ?? [],
-                    liveSeries.meta?.currency ?? rawCandles[rawCandles.length - 1]?.currency ?? "USD",
-                    liveSeries.meta?.exchange ?? rawCandles[rawCandles.length - 1]?.exchange ?? null
-                );
-
-                rawCandles = mergeStoredCandlesWithLiveCandles(rawCandles, liveCandles);
-            } catch (liveSeriesError) {
-                console.error("getTwelveDataTimeSeries error", liveSeriesError);
-            }
-        }
-
-        let candles = aggregateCandlesByCount(rawCandles, config.aggregateSize).slice(-limit);
-
-        if (candles.length === 0) {
-            const fetched = await fetchAndStoreYahooCandles(symbol, config.providerInterval, config.range);
-            candles = aggregateCandlesByCount(fetched, config.aggregateSize).slice(-limit);
         }
 
         return NextResponse.json(
@@ -152,12 +177,17 @@ export async function GET(request: Request) {
                 ok: true,
                 symbol,
                 timeframe,
-                data: candles,
+                source: responseSource,
+                baseInterval: stored.baseInterval,
+                aggregateSize: stored.aggregateSize,
+                refreshMode,
+                data: stored.data,
             },
             {
                 headers: {
                     ...corsHeaders,
                     "Cache-Control": "no-store",
+                    "X-Market-Refresh": refreshMode,
                 },
             }
         );
@@ -180,6 +210,3 @@ export async function GET(request: Request) {
         );
     }
 }
-
-
-

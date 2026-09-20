@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { getTwelveDataTimeSeries } from "@/app/utils/twelvedata/server";
 import { saveQuoteHistory } from "@/app/utils/twelvedata/history";
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
 import { getCachedPayload, getOrCreateGlobalCache, setCachedPayload } from "@/app/utils/market/cache";
-import { buildCandlesFromQuoteRows, buildCandlesFromStoredRows, buildCandlesFromTimeSeriesValues, aggregateCandlesByCount, fetchAndStoreYahooCandles, mergeStoredCandlesWithLiveCandles, type MarketCandleRow, type OhlcCandle, type QuoteHistoryRow } from "@/app/utils/market/ohlc";
+import { buildCandlesFromQuoteRows, buildCandlesFromStoredRows, aggregateCandlesByCount, fetchAndStoreYahooCandles, fetchAndStoreTwelveDataCandles, mergeStoredCandlesWithLiveCandles, type MarketCandleRow, type OhlcCandle, type QuoteHistoryRow } from "@/app/utils/market/ohlc";
 import { getConfigForTimeframe, getProviderFreshnessMs } from "@/app/utils/market/timeframes";
 
 const corsHeaders = {
@@ -51,25 +50,6 @@ function buildJsonResponse(body: unknown, cacheStatus: "HIT" | "MISS") {
     });
 }
 
-function getTwelveDataInterval(providerInterval: string) {
-    switch (providerInterval) {
-        case "1m":
-            return "1min";
-        case "2m":
-            return "2min";
-        case "5m":
-            return "5min";
-        case "15m":
-            return "15min";
-        case "30m":
-            return "30min";
-        case "60m":
-            return "1h";
-        default:
-            return null;
-    }
-}
-
 function shouldUseLiveTimeSeries(providerInterval: string) {
     return ["1m", "2m", "5m", "15m", "30m", "60m"].includes(providerInterval);
 }
@@ -79,7 +59,7 @@ async function backfillSymbolHistory(symbol: string) {
         backfillConfigs.map(async (config) => {
             const { data, error } = await supabaseAdmin
                 .from("candles")
-                .select("open_time")
+                .select("open_time,fetched_at")
                 .eq("instrument_id", symbol)
                 .eq("timeframe", config.providerInterval)
                 .order("open_time", { ascending: false })
@@ -92,7 +72,7 @@ async function backfillSymbolHistory(symbol: string) {
             const latestRow = data?.[0];
             const isFresh =
                 latestRow &&
-                Date.now() - new Date(latestRow.open_time).getTime() <
+                Date.now() - new Date(latestRow.fetched_at ?? latestRow.open_time).getTime() <
                     getProviderFreshnessMs(config.providerInterval);
 
             if (isFresh) {
@@ -166,7 +146,7 @@ export async function GET(request: Request) {
             supabaseAdmin
                 .from("candles")
                 .select(
-                    "requested_symbol:instrument_id,provider_symbol,interval:timeframe,candle_time:open_time,exchange,currency,open_price,high_price,low_price,close_price,volume"
+                    "requested_symbol:instrument_id,provider_symbol,interval:timeframe,candle_time:open_time,exchange,currency,open_price,high_price,low_price,close_price,volume,provider,fetched_at"
                 )
                 .in("instrument_id", symbols)
                 .eq("timeframe", config.providerInterval)
@@ -193,7 +173,7 @@ export async function GET(request: Request) {
                 const latestStoredCandle = symbolStoredRows[0];
                 const hasFreshStoredHistory =
                     latestStoredCandle &&
-                    Date.now() - new Date(latestStoredCandle.candle_time).getTime() <
+                    Date.now() - new Date(latestStoredCandle.fetched_at ?? latestStoredCandle.candle_time).getTime() <
                         getProviderFreshnessMs(config.providerInterval);
 
                 try {
@@ -237,16 +217,10 @@ export async function GET(request: Request) {
                         !hasFreshStoredHistory
                     ) {
                         try {
-                            const liveSeries = await getTwelveDataTimeSeries(
+                            liveSeriesCandles = await fetchAndStoreTwelveDataCandles(
                                 symbol,
-                                getTwelveDataInterval(config.providerInterval) ?? "1min",
+                                config.providerInterval,
                                 Math.min(200, Math.max(60, limit * config.aggregateSize))
-                            );
-
-                            liveSeriesCandles = buildCandlesFromTimeSeriesValues(
-                                liveSeries.values ?? [],
-                                liveSeries.meta?.currency ?? "USD",
-                                liveSeries.meta?.exchange ?? null
                             );
                         } catch (liveSeriesError) {
                             console.error("getTwelveDataTimeSeries error", {

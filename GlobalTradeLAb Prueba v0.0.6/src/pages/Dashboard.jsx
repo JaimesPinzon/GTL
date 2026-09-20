@@ -23,6 +23,8 @@ const createDefaultChartAppearance = () => ({
   upColor: "#22c55e",
   downColor: "#ef4444",
   lineColor: "#f59e0b",
+  indicatorDividerColor: "#475569",
+  indicatorDividerThickness: 1,
   bodyEnabled: true,
   borderEnabled: true,
   wickEnabled: true,

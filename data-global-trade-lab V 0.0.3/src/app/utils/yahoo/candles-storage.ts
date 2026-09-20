@@ -129,6 +129,7 @@ export async function getLatestStoredYahooBaseCandle(
         .from(YAHOO_CANDLES_TABLE_NAME)
         .select("open_time,fetched_at,is_final")
         .eq("timeframe", interval)
+        .order("fetched_at", { ascending: false })
         .order("open_time", { ascending: false })
         .limit(1);
 

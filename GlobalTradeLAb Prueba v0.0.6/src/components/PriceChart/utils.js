@@ -196,9 +196,8 @@ export const focusLatestBars = (chart, dataLength, visibleBars = 120) => {
     return;
   }
 
-  const targetVisibleBars = Math.max(visibleBars, 500);
-  const minVisibleBars = Math.min(120, Math.max(40, Math.round(targetVisibleBars * 0.25)));
-  const barsToShow = Math.max(minVisibleBars, Math.min(targetVisibleBars, dataLength + 8));
+  const targetVisibleBars = Math.max(40, visibleBars);
+  const barsToShow = Math.min(targetVisibleBars, Math.max(1, dataLength));
   const rightPadding = Math.max(3, Math.round(barsToShow * 0.08));
   const lastLogicalIndex = dataLength - 1;
   const from = lastLogicalIndex - barsToShow + 1;

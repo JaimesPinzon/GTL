@@ -1,4 +1,5 @@
 import { saveMarketCandles } from "@/app/utils/twelvedata/candles";
+import { getTwelveDataTimeSeries } from "@/app/utils/twelvedata/server";
 import { getYahooHistoricalChart } from "@/app/utils/yahoo/server";
 
 export type QuoteHistoryRow = {
@@ -20,6 +21,8 @@ export type MarketCandleRow = {
     low_price: number | string;
     close_price: number | string;
     volume: number | string | null;
+    provider?: string | null;
+    fetched_at?: string | null;
 };
 
 export type TwelveDataTimeSeriesValue = {
@@ -218,12 +221,11 @@ export function mergeStoredCandlesWithQuoteRows(
 }
 
 export function buildCandlesFromStoredRows(rows: MarketCandleRow[]) {
-    return [...rows]
-        .sort(
-            (left, right) =>
-                new Date(left.candle_time).getTime() - new Date(right.candle_time).getTime()
-        )
-        .map((row) => {
+    const providerPriority = (provider: string | null | undefined) =>
+        provider === "twelvedata" ? 2 : provider === "yahoo_finance" ? 1 : 0;
+    const candlesByTime = new Map<string, OhlcCandle & { providerPriority: number; fetchedAt: number }>();
+
+    rows.forEach((row) => {
             const open = parseNumeric(row.open_price);
             const high = parseNumeric(row.high_price);
             const low = parseNumeric(row.low_price);
@@ -235,10 +237,10 @@ export function buildCandlesFromStoredRows(rows: MarketCandleRow[]) {
                 !normalizedTime ||
                 !isAlignedProviderCandleTime(normalizedTime)
             ) {
-                return null;
+                return;
             }
 
-            return {
+            const candidate = {
                 time: normalizedTime,
                 open: open as number,
                 high: high as number,
@@ -247,9 +249,97 @@ export function buildCandlesFromStoredRows(rows: MarketCandleRow[]) {
                 value: close as number,
                 currency: row.currency ?? "USD",
                 exchange: row.exchange ?? null,
+                providerPriority: providerPriority(row.provider),
+                fetchedAt: row.fetched_at ? new Date(row.fetched_at).getTime() : 0,
             };
-        })
-        .filter((row): row is NonNullable<typeof row> => row !== null);
+
+            const existing = candlesByTime.get(normalizedTime);
+            if (
+                !existing ||
+                candidate.providerPriority > existing.providerPriority ||
+                (
+                    candidate.providerPriority === existing.providerPriority &&
+                    candidate.fetchedAt >= existing.fetchedAt
+                )
+            ) {
+                candlesByTime.set(normalizedTime, candidate);
+            }
+        });
+
+    return Array.from(candlesByTime.values())
+        .sort((left, right) => new Date(left.time).getTime() - new Date(right.time).getTime())
+        .map(({ providerPriority: ignoredPriority, fetchedAt: ignoredFetchedAt, ...candle }) => {
+            void ignoredPriority;
+            void ignoredFetchedAt;
+            return candle;
+        });
+}
+
+const TWELVE_DATA_INTERVAL_BY_CANDLE_INTERVAL: Record<string, string> = {
+    "1m": "1min",
+    "2m": "2min",
+    "5m": "5min",
+    "15m": "15min",
+    "30m": "30min",
+    "60m": "1h",
+    "1h": "1h",
+    "1d": "1day",
+    "1wk": "1week",
+    "1mo": "1month",
+};
+
+export function getTwelveDataIntervalForCandleInterval(interval: string) {
+    return TWELVE_DATA_INTERVAL_BY_CANDLE_INTERVAL[interval] ?? null;
+}
+
+export async function fetchAndStoreTwelveDataCandles(
+    symbol: string,
+    candleInterval: string,
+    outputsize = 200,
+    { throwOnPersistenceError = true }: { throwOnPersistenceError?: boolean } = {}
+) {
+    const providerInterval = getTwelveDataIntervalForCandleInterval(candleInterval);
+    if (!providerInterval) {
+        return [];
+    }
+
+    const series = await getTwelveDataTimeSeries(symbol, providerInterval, outputsize);
+    const candles = buildCandlesFromTimeSeriesValues(
+        series.values ?? [],
+        series.meta?.currency ?? "USD",
+        series.meta?.exchange ?? null
+    );
+
+    try {
+        await saveMarketCandles(candles.map((candle, index) => ({
+            requestedSymbol: symbol,
+            providerSymbol: series.meta?.symbol ?? symbol,
+            interval: candleInterval,
+            candleTime: candle.time,
+            exchange: candle.exchange ?? series.meta?.exchange ?? "TWELVEDATA",
+            currency: candle.currency,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            volume: null,
+            provider: "twelvedata",
+            sourceRange: `time_series:${providerInterval}`,
+            isFinal: index < candles.length - 1,
+        })));
+    } catch (error) {
+        if (throwOnPersistenceError) {
+            throw error;
+        }
+
+        console.error("Twelve Data OHLC persistence error", {
+            symbol,
+            candleInterval,
+            error: error instanceof Error ? error.message : error,
+        });
+    }
+
+    return candles;
 }
 
 export function aggregateCandlesByCount(candles: OhlcCandle[], aggregateSize: number) {
@@ -307,10 +397,18 @@ export async function fetchAndStoreYahooCandles(
                 low: candle.low,
                 close: candle.close,
                 volume: parseNumeric(candle.volume),
+                provider: "yahoo_finance",
+                sourceRange: range,
+                isFinal: true,
             }))
         );
-    } catch {
+    } catch (error) {
         // Keep serving live data even if persistence fails.
+        console.error("fetchAndStoreYahooCandles persistence error", {
+            symbol,
+            providerInterval,
+            error: error instanceof Error ? error.message : error,
+        });
     }
 
     return candles;

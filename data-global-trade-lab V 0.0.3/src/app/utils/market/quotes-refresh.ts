@@ -9,6 +9,7 @@ import { normalizeMarketSymbols, parseTrackedSymbols } from "@/app/utils/market/
 import { supabaseAdmin } from "@/app/utils/supabase/admin";
 import { saveQuoteHistoryBatch } from "@/app/utils/twelvedata/history";
 import { getTwelveDataQuotes } from "@/app/utils/twelvedata/server";
+import { fetchAndStoreTwelveDataCandles } from "@/app/utils/market/ohlc";
 
 type RefreshableQuote = {
     requestedSymbol: string;
@@ -39,8 +40,10 @@ export type MarketQuotesRefreshResult = {
     lockBypassed: boolean;
     persistedSnapshot: boolean;
     persistedHistory: boolean;
+    persistedCandles: boolean;
     snapshotPersistError: string | null;
     historyPersistError: string | null;
+    candlePersistError: string | null;
     successfulQuotesCount: number;
     results: Array<{
         requestedSymbol: string;
@@ -98,8 +101,10 @@ export async function refreshTrackedQuotesIfDue({
             lockBypassed: false,
             persistedSnapshot: false,
             persistedHistory: false,
+            persistedCandles: false,
             snapshotPersistError: null,
             historyPersistError: null,
+            candlePersistError: null,
             successfulQuotesCount: 0,
             results: [],
         };
@@ -123,9 +128,11 @@ export async function refreshTrackedQuotesIfDue({
             lockBypassed: false,
             persistedSnapshot: false,
             persistedHistory: false,
+            persistedCandles: false,
             snapshotPersistError:
                 error instanceof Error ? error.message : "refresh_lock_unavailable",
             historyPersistError: null,
+            candlePersistError: null,
             successfulQuotesCount: 0,
             results: [],
         };
@@ -141,8 +148,10 @@ export async function refreshTrackedQuotesIfDue({
             lockBypassed: false,
             persistedSnapshot: false,
             persistedHistory: false,
+            persistedCandles: false,
             snapshotPersistError: null,
             historyPersistError: null,
+            candlePersistError: null,
             successfulQuotesCount: 0,
             results: [],
         };
@@ -166,8 +175,10 @@ export async function refreshTrackedQuotesIfDue({
 
     let persistedSnapshot = true;
     let persistedHistory = true;
+    let persistedCandles = true;
     let snapshotPersistError: string | null = null;
     let historyPersistError: string | null = null;
+    let candlePersistError: string | null = null;
 
     try {
         await upsertLastCandleMarketBatch(successfulQuotes);
@@ -191,6 +202,20 @@ export async function refreshTrackedQuotesIfDue({
             error instanceof Error
                 ? error.message
                 : "quote_history_insert_failed";
+    }
+
+    const candleRefreshResults = await Promise.allSettled(
+        successfulQuotes.map((quote) =>
+            fetchAndStoreTwelveDataCandles(quote.requestedSymbol, "1m", 12)
+        )
+    );
+    const candleFailures = candleRefreshResults
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+
+    if (candleFailures.length > 0) {
+        persistedCandles = false;
+        candlePersistError = candleFailures.join(" | ");
     }
 
     try {
@@ -225,8 +250,10 @@ export async function refreshTrackedQuotesIfDue({
         lockBypassed: false,
         persistedSnapshot,
         persistedHistory,
+        persistedCandles,
         snapshotPersistError,
         historyPersistError,
+        candlePersistError,
         successfulQuotesCount: successfulQuotes.length,
         results: quoteResponses.map(({ requestedSymbol, data }) => ({
             requestedSymbol,

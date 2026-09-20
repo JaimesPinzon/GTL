@@ -82,21 +82,21 @@ export function getYahooBaseConfig(timeframe: string) {
 }
 
 export function getProviderFreshnessMs(providerInterval: string) {
-    const FIVE_MINUTES_MS = 5 * 60 * 1000;
     const freshnessByInterval: Record<string, number> = {
-        "1m": FIVE_MINUTES_MS,
-        "2m": FIVE_MINUTES_MS,
-        "5m": FIVE_MINUTES_MS,
-        "15m": FIVE_MINUTES_MS,
-        "30m": FIVE_MINUTES_MS,
-        "60m": FIVE_MINUTES_MS,
-        "1d": FIVE_MINUTES_MS,
-        "1wk": FIVE_MINUTES_MS,
-        "1mo": FIVE_MINUTES_MS,
-        "3mo": FIVE_MINUTES_MS,
+        "1m": 2 * 60 * 1000,
+        "2m": 2 * 60 * 1000,
+        "5m": 5 * 60 * 1000,
+        "15m": 15 * 60 * 1000,
+        "30m": 30 * 60 * 1000,
+        "60m": 60 * 60 * 1000,
+        "1h": 60 * 60 * 1000,
+        "1d": 6 * 60 * 60 * 1000,
+        "1wk": 24 * 60 * 60 * 1000,
+        "1mo": 24 * 60 * 60 * 1000,
+        "3mo": 24 * 60 * 60 * 1000,
     };
 
-    return freshnessByInterval[providerInterval] ?? FIVE_MINUTES_MS;
+    return freshnessByInterval[providerInterval] ?? 5 * 60 * 1000;
 }
 
 
