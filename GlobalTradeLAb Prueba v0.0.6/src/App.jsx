@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from "react";
-import { BrowserRouter as Router, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter as Router, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { Toaster } from "@/components/ui/toaster";
@@ -14,7 +14,7 @@ import {
   LEGACY_APP_HOME_PATH,
 } from "@/lib/routes";
 import { isDynamicImportFailure, markChunkLoadingHealthy, recoverFromChunkLoadFailure } from "@/lib/chunk-recovery";
-import { preloadDashboardDestinations, preloadRoute } from "@/lib/route-loaders";
+import { preloadRoute } from "@/lib/route-loaders";
 
 const ROUTE_LOAD_TIMEOUT_MS = 15000;
 
@@ -63,28 +63,6 @@ const ClassAuditPage = lazyRoute("classAudit");
 const ClassLayout = lazyRoute("classLayout");
 const EditClassPage = lazyRoute("editClass");
 const FinancialLabPage = lazyRoute("financialLab");
-
-const RoutePreloader = () => {
-  const location = useLocation();
-
-  useEffect(() => {
-    if (!/^\/app\/classes\/[^/]+\/(?:dashboard|markets\/trade)$/.test(location.pathname)) return undefined;
-
-    const preload = () => {
-      void preloadDashboardDestinations();
-    };
-    const idleId = typeof window.requestIdleCallback === "function"
-      ? window.requestIdleCallback(preload, { timeout: 2000 })
-      : window.setTimeout(preload, 800);
-
-    return () => {
-      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
-      else window.clearTimeout(idleId);
-    };
-  }, [location.pathname]);
-
-  return null;
-};
 
 const hexToHslTriplet = (hex) => {
   const normalized = hex.replace("#", "");
@@ -379,7 +357,6 @@ function AppContent() {
 
   return (
     <Router>
-      <RoutePreloader />
       <AppearanceBridge />
       {accessibilityState?.keyboardNavigation ? (
         <a

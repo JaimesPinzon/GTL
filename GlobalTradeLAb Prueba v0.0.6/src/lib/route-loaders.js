@@ -63,15 +63,3 @@ export function preloadPath(pathname) {
   const routeId = getRouteIdForPath(pathname);
   return routeId ? preloadRoute(routeId) : Promise.resolve();
 }
-
-export function preloadDashboardDestinations() {
-  return Promise.allSettled([
-    "classes",
-    "news",
-    "classOverview",
-    "markets",
-    "classPortfolio",
-    "classAcademic",
-    "financialLab",
-  ].map(preloadRoute));
-}
