@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from "react";
-import { BrowserRouter as Router, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { BrowserRouter as Router, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { Toaster } from "@/components/ui/toaster";
@@ -13,26 +13,78 @@ import {
   GLOBAL_APP_PATHS,
   LEGACY_APP_HOME_PATH,
 } from "@/lib/routes";
+import { isDynamicImportFailure, markChunkLoadingHealthy, recoverFromChunkLoadFailure } from "@/lib/chunk-recovery";
+import { preloadDashboardDestinations, preloadRoute } from "@/lib/route-loaders";
 
-const Dashboard = lazy(() => import("@/pages/Dashboard"));
-const Login = lazy(() => import("@/pages/Login"));
-const Register = lazy(() => import("@/pages/Register"));
-const LearnPage = lazy(() => import("@/pages/LearnPage"));
-const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
-const HelpPage = lazy(() => import("@/pages/HelpPage"));
-const NewsPage = lazy(() => import("@/features/news/pages/NewsPage"));
-const NewsArticlePage = lazy(() => import("@/features/news/pages/NewsArticlePage"));
-const LandingPage = lazy(() => import("@/pages/LandingPage"));
-const PublicSectionPage = lazy(() => import("@/pages/PublicSectionPage"));
-const ClassesPanel = lazy(() => import("@/components/ClassesPanel"));
-const TeacherMarkets = lazy(() => import("@/components/teacher/TeacherMarkets"));
-const ClassOverviewPage = lazy(() => import("@/features/classes/pages/ClassOverviewPage"));
-const ClassPortfolioPage = lazy(() => import("@/features/classes/pages/ClassPortfolioPage"));
-const ClassAcademicPage = lazy(() => import("@/features/classes/pages/ClassAcademicPage"));
-const ClassAuditPage = lazy(() => import("@/features/classes/pages/ClassAuditPage"));
-const ClassLayout = lazy(() => import("@/features/classes/layouts/ClassLayout"));
-const EditClassPage = lazy(() => import("@/features/classes/pages/EditClassPage"));
-const FinancialLabPage = lazy(() => import("@/features/financial-lab/pages/FinancialLabPage"));
+const ROUTE_LOAD_TIMEOUT_MS = 15000;
+
+const loadRouteWithRecovery = (routeId) => {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(
+      () => reject(new Error(`Route module timed out: ${routeId}`)),
+      ROUTE_LOAD_TIMEOUT_MS
+    );
+  });
+
+  return Promise.race([preloadRoute(routeId), timeout])
+    .then((module) => {
+      window.clearTimeout(timeoutId);
+      markChunkLoadingHealthy(routeId);
+      return module;
+    })
+    .catch((error) => {
+      window.clearTimeout(timeoutId);
+      if (isDynamicImportFailure(error) && recoverFromChunkLoadFailure(routeId)) {
+        return new Promise(() => {});
+      }
+      throw error;
+    });
+};
+
+const lazyRoute = (routeId) => lazy(() => loadRouteWithRecovery(routeId));
+
+const Dashboard = lazyRoute("dashboard");
+const Login = lazyRoute("login");
+const Register = lazyRoute("register");
+const LearnPage = lazyRoute("learn");
+const SettingsPage = lazyRoute("settings");
+const HelpPage = lazyRoute("support");
+const NewsPage = lazyRoute("news");
+const NewsArticlePage = lazyRoute("newsArticle");
+const LandingPage = lazyRoute("landing");
+const PublicSectionPage = lazyRoute("publicSection");
+const ClassesPanel = lazyRoute("classes");
+const TeacherMarkets = lazyRoute("markets");
+const ClassOverviewPage = lazyRoute("classOverview");
+const ClassPortfolioPage = lazyRoute("classPortfolio");
+const ClassAcademicPage = lazyRoute("classAcademic");
+const ClassAuditPage = lazyRoute("classAudit");
+const ClassLayout = lazyRoute("classLayout");
+const EditClassPage = lazyRoute("editClass");
+const FinancialLabPage = lazyRoute("financialLab");
+
+const RoutePreloader = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!/^\/app\/classes\/[^/]+\/(?:dashboard|markets\/trade)$/.test(location.pathname)) return undefined;
+
+    const preload = () => {
+      void preloadDashboardDestinations();
+    };
+    const idleId = typeof window.requestIdleCallback === "function"
+      ? window.requestIdleCallback(preload, { timeout: 2000 })
+      : window.setTimeout(preload, 800);
+
+    return () => {
+      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
+      else window.clearTimeout(idleId);
+    };
+  }, [location.pathname]);
+
+  return null;
+};
 
 const hexToHslTriplet = (hex) => {
   const normalized = hex.replace("#", "");
@@ -327,6 +379,7 @@ function AppContent() {
 
   return (
     <Router>
+      <RoutePreloader />
       <AppearanceBridge />
       {accessibilityState?.keyboardNavigation ? (
         <a

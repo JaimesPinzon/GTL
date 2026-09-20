@@ -15,6 +15,7 @@ export function useMacdChart({
   formattedSeriesData,
   isFullScreen,
   macdContainerRef,
+  onCrosshairMove,
   paneStudy,
   seriesRef,
   showMACD,
@@ -29,6 +30,11 @@ export function useMacdChart({
   const paneValuesByPlotRef = useRef(new Map());
   const mainValuesByTimeRef = useRef(new Map());
   const crosshairSyncStateRef = useRef({ mainToMacd: false, macdToMain: false });
+  const crosshairMoveHandlerRef = useRef(onCrosshairMove);
+
+  useEffect(() => {
+    crosshairMoveHandlerRef.current = onCrosshairMove;
+  }, [onCrosshairMove]);
 
   useEffect(() => {
     mainValuesByTimeRef.current = new Map(
@@ -163,6 +169,8 @@ export function useMacdChart({
       };
 
       const handleMacdCrosshairMove = (param) => {
+        crosshairMoveHandlerRef.current?.(param);
+
         if (crosshairSyncStateRef.current.mainToMacd || !chartRef.current || !seriesRef.current) {
           return;
         }

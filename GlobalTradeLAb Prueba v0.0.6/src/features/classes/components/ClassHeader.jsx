@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { useClassContext } from "@/features/classes/context/ClassContext";
 import { useClassShortcuts } from "@/features/classes/hooks/useClassShortcuts";
 import { CLASS_CONTEXT_NAV_ITEMS, buildClassRoute } from "@/lib/routes";
+import { preloadPath } from "@/lib/route-loaders";
 
 const shortcutIcons = {
   dashboard: LayoutDashboard,
@@ -56,6 +57,8 @@ const ClassHeader = () => {
             <NavLink
               key={shortcut.id}
               to={shortcut.to}
+              onFocus={() => void preloadPath(shortcut.to).catch(() => {})}
+              onPointerEnter={() => void preloadPath(shortcut.to).catch(() => {})}
               className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition ${
                 active
                   ? "bg-primary/10 text-primary"

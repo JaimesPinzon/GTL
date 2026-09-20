@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 
 import { useClassContext } from "@/features/classes/context/ClassContext";
 import { CLASS_CONTEXT_NAV_ITEMS, buildClassRoute } from "@/lib/routes";
+import { preloadPath } from "@/lib/route-loaders";
 
 const icons = {
   overview: LayoutDashboard,
@@ -70,6 +71,8 @@ const ClassNavigation = () => {
           <NavLink
             key={item.id}
             to={item.to}
+            onFocus={() => void preloadPath(item.to).catch(() => {})}
+            onPointerEnter={() => void preloadPath(item.to).catch(() => {})}
             className={`group relative flex shrink-0 items-center gap-2 px-3 py-3 text-sm font-medium transition md:px-4 ${
               active ? "text-white" : "text-slate-400 hover:text-slate-100"
             }`}

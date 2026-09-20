@@ -73,6 +73,7 @@ const PriceChart = ({
   const chartContainerRef = useRef(null);
   const macdChartContainerRef = useRef(null);
   const chartPanelsContainerRef = useRef(null);
+  const indicatorDividerCrosshairRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
   const renderedDataRef = useRef([]);
@@ -203,10 +204,23 @@ const PriceChart = ({
     syncMacdVisibilityRef.current?.();
   }, []);
 
+  const handleIndicatorDividerCrosshairMove = useCallback((param) => {
+    const bridge = indicatorDividerCrosshairRef.current;
+    const x = Number(param?.point?.x);
+    if (!bridge || param?.time == null || !Number.isFinite(x)) {
+      if (bridge) bridge.style.opacity = "0";
+      return;
+    }
+
+    bridge.style.opacity = "1";
+    bridge.style.transform = `translateX(${Math.round(x)}px)`;
+  }, []);
+
   const handleChartCrosshairMove = useCallback((param) => {
+    handleIndicatorDividerCrosshairMove(param);
     overlay.handleCrosshairMove(param);
     drawings.handleCrosshairMove(param);
-  }, [drawings.handleCrosshairMove, overlay.handleCrosshairMove]);
+  }, [drawings.handleCrosshairMove, handleIndicatorDividerCrosshairMove, overlay.handleCrosshairMove]);
 
   const requestClearDrawings = useCallback(() => {
     setIsClearDialogOpen(true);
@@ -302,6 +316,7 @@ const PriceChart = ({
     formattedSeriesData,
     isFullScreen,
     macdContainerRef: macdChartContainerRef,
+    onCrosshairMove: handleIndicatorDividerCrosshairMove,
     paneStudy: paneStudies[0] ?? null,
     seriesRef,
     showMACD,
@@ -616,7 +631,7 @@ const PriceChart = ({
               aria-valuemin={MIN_INDICATOR_PANE_HEIGHT}
               aria-valuemax={MAX_INDICATOR_PANE_HEIGHT}
               aria-valuenow={indicatorPane.height}
-              className={`group relative z-30 flex h-2.5 shrink-0 touch-none cursor-row-resize items-center justify-center outline-none transition-colors focus-visible:bg-primary/10 ${
+              className={`group relative flex h-px shrink-0 touch-none cursor-row-resize items-center justify-center outline-none transition-colors focus-visible:bg-primary/10 ${
                 indicatorPane.isResizing ? "bg-primary/10" : "hover:bg-primary/5"
               }`}
               onDoubleClick={indicatorPane.resetHeight}
@@ -627,15 +642,21 @@ const PriceChart = ({
               onPointerUp={indicatorPane.handlePointerUp}
               title={t("priceChart.indicators.resizePaneHint")}
             >
+              <span aria-hidden="true" className="absolute -inset-y-[5px] inset-x-0" />
               <span
                 aria-hidden="true"
-                className="absolute inset-x-0 transition-opacity group-hover:opacity-100"
+                className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 transition-opacity group-hover:opacity-100"
                 style={{ backgroundColor: indicatorDividerColor, height: indicatorDividerThickness }}
               />
               <span
                 aria-hidden="true"
-                className="relative h-1 w-10 rounded-full opacity-70 shadow-sm transition group-hover:w-14 group-hover:opacity-100 group-focus-visible:w-14 group-focus-visible:opacity-100"
+                className="pointer-events-none absolute left-1/2 top-1/2 h-1 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70 shadow-sm transition group-hover:w-14 group-hover:opacity-100 group-focus-visible:w-14 group-focus-visible:opacity-100"
                 style={{ backgroundColor: indicatorDividerColor }}
+              />
+              <span
+                ref={indicatorDividerCrosshairRef}
+                aria-hidden="true"
+                className="pointer-events-none absolute -inset-y-[6px] left-0 z-10 border-l border-dotted border-[#758696] opacity-0"
               />
             </div>
             <div

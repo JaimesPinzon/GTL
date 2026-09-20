@@ -28,6 +28,7 @@ import {
   GLOBAL_APP_PATHS,
   buildClassRoute,
 } from "@/lib/routes";
+import { preloadPath } from "@/lib/route-loaders";
 
 const SIDEBAR_PINNED_KEY = "gtl.sidebar.pinned";
 let sidebarPinnedMemory = false;
@@ -167,6 +168,10 @@ const Sidebar = () => {
     openSidebar();
   };
 
+  const prepareNavigation = (path) => {
+    void preloadPath(path).catch(() => {});
+  };
+
   return (
     <>
       <AnimatePresence>
@@ -245,7 +250,9 @@ const Sidebar = () => {
                 <div key={item.id} className="space-y-1">
                   <NavLink
                     to={item.path}
+                    onFocus={() => prepareNavigation(item.path)}
                     onMouseDown={keepSidebarStable}
+                    onPointerEnter={() => prepareNavigation(item.path)}
                     onClick={keepSidebarStable}
                     className={`group flex items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-200 ${
                       isGlobalActive
@@ -272,7 +279,9 @@ const Sidebar = () => {
                           <NavLink
                             key={subItem.id}
                             to={subItem.path || APP_HOME_PATH}
+                            onFocus={() => prepareNavigation(subItem.path || APP_HOME_PATH)}
                             onMouseDown={keepSidebarStable}
+                            onPointerEnter={() => prepareNavigation(subItem.path || APP_HOME_PATH)}
                             onClick={keepSidebarStable}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
                               isActive
@@ -296,7 +305,9 @@ const Sidebar = () => {
         <div className="mt-auto border-t border-white/8 p-3">
           <NavLink
             to={GLOBAL_APP_PATHS.support}
+            onFocus={() => prepareNavigation(GLOBAL_APP_PATHS.support)}
             onMouseDown={keepSidebarStable}
+            onPointerEnter={() => prepareNavigation(GLOBAL_APP_PATHS.support)}
             onClick={keepSidebarStable}
             className={({ isActive }) => `mb-1 flex items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-200 ${
               isActive
