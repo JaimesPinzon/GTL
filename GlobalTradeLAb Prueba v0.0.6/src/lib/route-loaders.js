@@ -20,17 +20,18 @@ export const ROUTE_LOADERS = {
   financialLab: () => import("@/features/financial-lab/pages/FinancialLabPage"),
 };
 
-const loadedRoutes = new Set();
+const loadedRoutes = new Map();
 const pendingRoutes = new Map();
 
 export function preloadRoute(routeId) {
   const loader = ROUTE_LOADERS[routeId];
-  if (!loader || loadedRoutes.has(routeId)) return Promise.resolve();
+  if (!loader) return Promise.resolve();
+  if (loadedRoutes.has(routeId)) return Promise.resolve(loadedRoutes.get(routeId));
   if (pendingRoutes.has(routeId)) return pendingRoutes.get(routeId);
 
   const request = loader()
     .then((module) => {
-      loadedRoutes.add(routeId);
+      loadedRoutes.set(routeId, module);
       pendingRoutes.delete(routeId);
       return module;
     })
